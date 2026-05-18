@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"log"
@@ -13,7 +14,7 @@ import (
 
 type Runtime interface {
 	Status() map[string]any
-	StartRelays()
+	StartPreview(ctx context.Context) error
 	StopAll()
 }
 
@@ -83,7 +84,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
-	s.runtime.StartRelays()
+	if err := s.runtime.StartPreview(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "preview",
