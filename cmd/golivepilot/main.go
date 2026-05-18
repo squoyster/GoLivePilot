@@ -14,6 +14,7 @@ import (
 
 	"github.com/squoyster/golivepilot/internal/app"
 	"github.com/squoyster/golivepilot/internal/config"
+	"github.com/squoyster/golivepilot/internal/ffmpeg"
 	"github.com/squoyster/golivepilot/internal/server"
 )
 
@@ -49,7 +50,8 @@ func run() error {
 		return fmt.Errorf("auth mode %q requires env var %q", cfg.Auth.Mode, cfg.Auth.PSKEnv)
 	}
 
-	runtime := app.NewRuntime(cfg)
+	supervisor := ffmpeg.NewSupervisor()
+	runtime := app.NewRuntime(cfg, supervisor)
 
 	srvWrapper := server.NewServer(cfg, runtime, operatorPSK, version)
 
