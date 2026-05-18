@@ -1,0 +1,210 @@
+###############################################
+# GoLivePilot MediaMTX config
+###############################################
+
+logLevel: info
+logDestinations: [stdout]
+logStructured: false
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+udpMaxPayloadSize: 1452
+
+###############################################
+# Authentication
+###############################################
+
+authMethod: internal
+
+authInternalUsers:
+  # Publisher account.
+  # Use simple URL-safe credentials: letters, numbers, dash, underscore.
+  # Avoid @ : / ? # & % in passwords because RTMP URLs get ugly fast.
+  - user: golivepilot-publish
+    pass: CHANGE_ME_PUBLISH_PASS
+    ips: []
+    permissions:
+      - action: publish
+        path: "~^live/"
+
+  # Read access.
+  # This allows FFmpeg, HLS preview, WebRTC read, etc.
+  # In production, prefer putting HLS/WebRTC behind GoLivePilot or Caddy auth.
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path: "~^live/"
+      - action: playback
+        path: "~^live/"
+
+  # Localhost admin for diagnostics from inside the MediaMTX container.
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
+  # Optional API user for GoLivePilot if it calls the MediaMTX Control API.
+  # Do not publish port 9997 publicly.
+  - user: golivepilot-api
+    pass: CHANGE_ME_API_PASS
+    ips: []
+    permissions:
+      - action: api
+
+###############################################
+# Control API
+###############################################
+
+api: true
+apiAddress: :9997
+apiEncryption: false
+apiAllowOrigins: ["*"]
+
+###############################################
+# Metrics / pprof
+###############################################
+
+metrics: false
+metricsAddress: :9998
+
+pprof: false
+pprofAddress: :9999
+
+###############################################
+# Disable RTSP for v0.1 unless needed
+###############################################
+
+rtsp: false
+
+###############################################
+# RTMP / RTMPS
+###############################################
+
+rtmp: true
+
+# "optional" means:
+#   RTMP  on :1935
+#   RTMPS on :1936
+#
+# Public users should publish with RTMPS.
+# Internal FFmpeg can read with plain RTMP over the Docker network.
+rtmpEncryption: optional
+
+rtmpAddress: :1935
+rtmpsAddress: :1936
+
+# Match your docker-compose mount:
+#   - /etc/letsencrypt:/etc/letsencrypt:ro
+rtmpServerCert: /etc/letsencrypt/live/stream.dynovo.ai/fullchain.pem
+rtmpServerKey: /etc/letsencrypt/live/stream.dynovo.ai/privkey.pem
+
+###############################################
+# HLS preview
+###############################################
+
+hls: true
+hlsAddress: :8888
+hlsEncryption: false
+
+# Keep permissive for now; tighten later behind GoLivePilot/Caddy.
+hlsAllowOrigins: ["*"]
+
+# Useful for preview pages so HLS is ready quickly once requested.
+hlsAlwaysRemux: true
+
+# Lower-latency HLS. Good for preview, not mission-critical switching.
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsDirectory: ""
+hlsMuxerCloseAfter: 60s
+
+###############################################
+# WebRTC
+###############################################
+
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ["*"]
+
+# UDP WebRTC media listener.
+# Publish this port/udp if browser clients connect from the public internet.
+webrtcLocalUDPAddress: :8189
+
+# Keep TCP disabled initially; enable only if needed.
+webrtcLocalTCPAddress: ""
+
+# Public VPS IP or DNS can be added here if ICE candidates are wrong.
+# Example:
+#   webrtcAdditionalHosts: ["stream.dynovo.ai"]
+webrtcIPsFromInterfaces: true
+webrtcAdditionalHosts: []
+
+# Optional STUN. Usually helpful for WebRTC browser clients.
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+
+webrtcSTUNGatherTimeout: 5s
+webrtcHandshakeTimeout: 10s
+webrtcTrackGatherTimeout: 2s
+
+###############################################
+# SRT disabled for v0.1
+###############################################
+
+srt: false
+
+###############################################
+# Path defaults
+###############################################
+
+pathDefaults:
+  source: publisher
+
+  # Only one active publisher per path.
+  # Set false so a second publisher cannot silently kick the first.
+  overridePublisher: false
+
+  maxReaders: 0
+  useAbsoluteTimestamp: false
+
+  record: false
+
+  # No MediaMTX lifecycle hooks.
+  # GoLivePilot owns FFmpeg workers and platform transitions.
+  runOnReady:
+  runOnReadyRestart: false
+  runOnNotReady:
+  runOnRead:
+  runOnReadRestart: false
+  runOnUnread:
+
+###############################################
+# Paths
+###############################################
+
+paths:
+  # Main browser/mobile camera path.
+  live/camera:
+    source: publisher
+
+  # Optional iPhone/Larix/OBS-style path for compatibility.
+  live/iphone:
+    source: publisher
+
+  # Optional desktop OBS path.
+  live/obs:
+    source: publisher
+
+  # Fallback: allow future live/<anything> paths without editing config.
+  "~^live/.+$":
+    source: publisher
