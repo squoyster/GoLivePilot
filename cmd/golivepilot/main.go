@@ -34,7 +34,13 @@ func main() {
 func run() error {
 	configPath := flag.String("config", env("GOLIVEPILOT_CONFIG", "/config/golivepilot.yml"), "path to config file")
 	listenOverride := flag.String("listen", "", "override listen address")
+	envHelp := flag.Bool("env-help", false, "show relevant environment variables and exit")
 	flag.Parse()
+
+	if *envHelp {
+		showEnvHelp()
+		return nil
+	}
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
@@ -151,4 +157,15 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func showEnvHelp() {
+	fmt.Println("Relevant Environment Variables:")
+	fmt.Println(strings.Repeat("-", 40))
+	for _, ev := range config.RelevantEnvVars {
+		fmt.Printf("Name:        %s\n", ev.Name)
+		fmt.Printf("Description: %s\n", ev.Description)
+		fmt.Printf("Example:     %s\n", ev.Example)
+		fmt.Println(strings.Repeat("-", 40))
+	}
 }

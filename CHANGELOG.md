@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.36] - 2026-05-19
+
+### Added
+- Added a new command-line flag `--env-help` to display relevant environment variables, their descriptions, and format examples.
+- Introduced a central `RelevantEnvVars` registry in the configuration package for documenting supported environment variables.
+
 ## [0.1.35] - 2026-05-19
 
 ### Added
