@@ -69,24 +69,29 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	previewURL := ""
+	previewURL := s.cfg.UI.PreviewHLSURL
 
-	// Prioritize local preview path if MediaMTX is used
-	if s.cfg.MediaEngine.Type == "mediamtx" {
-		base := strings.TrimSuffix(s.cfg.MediaEngine.MediaMTX.HLSBaseURL, "/")
-		previewURL = fmt.Sprintf("%s/live/preview/index.m3u8", base)
-	} else if len(s.cfg.Ingests) > 0 {
-		ing := s.cfg.Ingests[0]
-		if ing.Preview.URL != "" {
-			previewURL = ing.Preview.URL
+	// Legacy/Automatic resolution if not explicitly configured
+	if previewURL == "" {
+		if s.cfg.MediaEngine.Type == "mediamtx" {
+			base := strings.TrimSuffix(s.cfg.MediaEngine.MediaMTX.HLSBaseURL, "/")
+			previewURL = fmt.Sprintf("%s/live/preview/index.m3u8", base)
+		} else if len(s.cfg.Ingests) > 0 {
+			ing := s.cfg.Ingests[0]
+			if ing.Preview.URL != "" {
+				previewURL = ing.Preview.URL
+			}
 		}
 	}
 
+	previewURLJSON, _ := json.Marshal(previewURL)
+
 	data := map[string]any{
-		"Title":      firstNonEmpty(s.cfg.UI.Title, s.cfg.App.Name, "GoLivePilot"),
-		"Subtitle":   firstNonEmpty(s.cfg.UI.Subtitle, "Preview → Go Live → Stop"),
-		"Version":    s.version,
-		"PreviewURL": previewURL,
+		"Title":          firstNonEmpty(s.cfg.UI.Title, s.cfg.App.Name, "GoLivePilot"),
+		"Subtitle":       firstNonEmpty(s.cfg.UI.Subtitle, "Preview → Go Live → Stop"),
+		"Version":        s.version,
+		"PreviewURL":     previewURL,
+		"PreviewURLJSON": template.JS(previewURLJSON),
 	}
 
 	w.Header().Set("content-type", "text/html; charset=utf-8")
@@ -252,6 +257,9 @@ async function post(path) {
   const result = await api(path, {method: "POST"});
   await refresh();
   console.log(result);
+  if (path === '/api/preview' || path === '/api/go-live') {
+    reloadPlayer();
+  }
 }
 
 async function refresh() {
@@ -263,24 +271,60 @@ setInterval(refresh, 2000);
 refresh();
 
 const video = document.getElementById('preview-video');
-const videoSrc = '{{.PreviewURL}}';
+const videoSrc = {{.PreviewURLJSON}};
 const previewStatus = document.getElementById('preview-status');
+let hls = null;
+
+function reloadPlayer() {
+  console.log("Reloading player...");
+  if (hls) {
+    hls.destroy();
+    hls = null;
+  }
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  initPlayer();
+}
 
 function initPlayer() {
   if (!videoSrc) {
-    previewStatus.textContent = "No preview URL configured";
+    previewStatus.textContent = "No preview HLS URL configured";
     return;
   }
 
-  if (Hls.isSupported()) {
-    const hls = new Hls({
+  if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Native HLS support (Safari)
+    video.src = videoSrc;
+    video.addEventListener('loadedmetadata', function() {
+      video.play().catch(e => console.warn("Autoplay blocked", e));
+      previewStatus.textContent = "Live Preview (Native)";
+    }, { once: true });
+    
+    // Simple retry for native video
+    video.onerror = function() {
+      console.log("Native video error, retrying in 2s...");
+      previewStatus.textContent = "Connecting...";
+      setTimeout(() => {
+        video.src = videoSrc + "?t=" + Date.now();
+      }, 2000);
+    };
+  } else if (Hls.isSupported()) {
+    hls = new Hls({
       manifestLoadingRetryDelay: 1000,
       manifestLoadingMaxRetry: Infinity,
+      levelLoadingRetryDelay: 1000,
+      levelLoadingMaxRetry: Infinity,
+      fragLoadingRetryDelay: 1000,
+      fragLoadingMaxRetry: Infinity,
+      enableWorker: true,
+      lowLatencyMode: true,
+      backBufferLength: 60
     });
     hls.loadSource(videoSrc);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
-      video.play();
+      video.play().catch(e => console.warn("Autoplay blocked", e));
       previewStatus.textContent = "Live Preview";
     });
     hls.on(Hls.Events.ERROR, function(event, data) {
@@ -296,17 +340,16 @@ function initPlayer() {
             hls.recoverMediaError();
             break;
           default:
-            hls.destroy();
+            console.error("Unrecoverable HLS error", data);
+            previewStatus.textContent = "Error: " + data.details;
+            // Retry entire player after a delay
+            setTimeout(reloadPlayer, 5000);
             break;
         }
       }
     });
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = videoSrc;
-    video.addEventListener('loadedmetadata', function() {
-      video.play();
-      previewStatus.textContent = "Live Preview";
-    });
+  } else {
+    previewStatus.textContent = "HLS not supported in this browser";
   }
 }
 

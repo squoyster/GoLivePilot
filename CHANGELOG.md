@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24] - 2026-05-18
+
+### Fixed
+- Fixed the HLS preview player requiring a manual page refresh to load the stream.
+- Implemented automatic player reloading when clicking the "Preview" or "Go Live" buttons.
+- Added a robust retry mechanism for both native HLS and Hls.js to handle stream startup delays.
+- Enhanced Hls.js configuration with tuned retry intervals and low-latency settings for better responsiveness.
+
+## [0.1.23] - 2026-05-18
+
+### Added
+- Added a configurable `preview_hls_url` field to `UIConfig` for the web application.
+
+### Changed
+- Integrated a visible HLS video player into the main UI for live verification of slate relays.
+- Enhanced the HTML template to support both native browser HLS playback and Hls.js fallback with automatic error recovery and logging.
+- Updated example and local configurations to include the default MediaMTX HLS preview URL.
+
 ## [0.1.22] - 2026-05-18
 
 ### Fixed
@@ -68,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.24]: https://github.com/squoyster/GoLivePilot/compare/v0.1.23...v0.1.24
+[0.1.23]: https://github.com/squoyster/GoLivePilot/compare/v0.1.22...v0.1.23
 [0.1.22]: https://github.com/squoyster/GoLivePilot/compare/v0.1.21...v0.1.22
 [0.1.21]: https://github.com/squoyster/GoLivePilot/compare/v0.1.20...v0.1.21
 [0.1.20]: https://github.com/squoyster/GoLivePilot/compare/v0.1.19...v0.1.20
