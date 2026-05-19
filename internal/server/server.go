@@ -296,11 +296,15 @@ function initPlayer() {
   if (video.canPlayType('application/vnd.apple.mpegurl')) {
     // Native HLS support (Safari)
     video.src = videoSrc;
-    video.addEventListener('loadedmetadata', function() {
+    video.onloadedmetadata = function() {
       video.play().catch(e => console.warn("Autoplay blocked", e));
       previewStatus.textContent = "Live Preview (Native)";
-    }, { once: true });
+    };
     
+    video.onplaying = function() {
+      previewStatus.textContent = "Live Preview (Native)";
+    };
+
     // Simple retry for native video
     video.onerror = function() {
       console.log("Native video error, retrying in 2s...");
@@ -327,6 +331,9 @@ function initPlayer() {
       video.play().catch(e => console.warn("Autoplay blocked", e));
       previewStatus.textContent = "Live Preview";
     });
+    video.onplaying = function() {
+      previewStatus.textContent = "Live Preview";
+    };
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (data.fatal) {
         switch (data.type) {
