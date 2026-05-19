@@ -234,7 +234,7 @@ func parseTemplates() *template.Template {
   <p class="sub">{{.Subtitle}}</p>
 
   <div class="card">
-    <h2>Preview</h2>
+    <h2>Live Stream Viewer</h2>
     <div class="video-container">
       <video id="preview-video" controls autoplay muted playsinline></video>
       <div id="video-placeholder" class="video-placeholder"></div>
@@ -291,12 +291,13 @@ async function refresh() {
   if (result.source_mode) {
     let label = "Standby";
     switch (result.source_mode) {
+      case "initialized": label = "Initialized"; break;
       case "slate": label = "Preview (Slate)"; break;
       case "camera": label = "LIVE"; break;
       case "none": label = "Ended"; break;
     }
     // Only update label if not in a transient connecting state
-    if (previewStatus.textContent !== "Connecting..." || result.source_mode === "none") {
+    if (previewStatus.textContent !== "Connecting..." || result.source_mode === "none" || result.source_mode === "initialized") {
       previewStatus.textContent = label;
       if (result.source_mode === "camera") {
         previewStatus.classList.add("live");
@@ -305,7 +306,7 @@ async function refresh() {
       }
     }
 
-    if (result.source_mode === "none") {
+    if (result.source_mode === "none" || result.source_mode === "initialized") {
       stopPlayer();
       document.getElementById("video-placeholder").style.display = "block";
       video.style.display = "none";
