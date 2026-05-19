@@ -69,14 +69,14 @@ media_engine:
   type: "mediamtx"
 
   mediamtx:
-    api_url: "http://mediamtx:9997"
+    api_url: "http://golivepilot-mediamtx.local:9997"
 
     # Used to build internal source URLs if ingest.internal_source_url is omitted.
-    internal_rtmp_base: "rtmp://mediamtx:1935"
+    internal_rtmp_base: "rtmp://golivepilot-mediamtx.local:1935"
 
     # HLS base URL exposed to the operator UI.
     # Usually routed through Caddy/GoLivePilot in production.
-    hls_base_url: "https://stream.dynovo.ai/hls"
+    hls_base_url: "http://golivepilot-mediamtx.local:8888"
 
 ###############################################
 # Operator UX
@@ -116,11 +116,11 @@ ingests:
 
     # Internal URL that FFmpeg workers read.
     # For MediaMTX, this is usually RTMP internally.
-    internal_source_url: "rtmp://mediamtx:1935/live/camera"
+    internal_source_url: "rtmp://golivepilot-mediamtx.local:1935/live/camera"
 
     preview:
       type: "hls"
-      url: "https://stream.dynovo.ai/hls/live/camera/index.m3u8"
+      url: "http://golivepilot-mediamtx.local:8888/live/camera/index.m3u8"
 
     browser_capture:
       enabled: true
@@ -145,11 +145,11 @@ ingests:
     publish_user: "golivepilot-publish"
     publish_pass_env: "GOLIVEPILOT_PUBLISH_PASS"
 
-    internal_source_url: "rtmp://mediamtx:1935/live/iphone"
+    internal_source_url: "rtmp://golivepilot-mediamtx.local:1935/live/iphone"
 
     preview:
       type: "hls"
-      url: "https://stream.dynovo.ai/hls/live/iphone/index.m3u8"
+      url: "http://golivepilot-mediamtx.local:8888/live/iphone/index.m3u8"
 
 ###############################################
 # Slate / preview source
