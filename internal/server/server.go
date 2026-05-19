@@ -315,7 +315,8 @@ async function post(path) {
   await refresh();
   console.log(result);
   if (path === '/api/preview' || path === '/api/go-live') {
-    reloadPlayer();
+    // Give backend a moment to start FFmpeg and MediaMTX to update
+    setTimeout(reloadPlayer, 1000);
   }
 }
 
@@ -482,7 +483,6 @@ function initPlayer() {
     video.onerror = function() {
       console.log("Native video error, retrying in 2s...");
       // previewStatus.textContent = "Connecting..."; // Don't override the backend status
-      if (previewStatus) previewStatus.classList.remove("live");
       setTimeout(() => {
         video.src = videoSrc + "?t=" + Date.now();
       }, 2000);
@@ -513,8 +513,6 @@ function initPlayer() {
           case Hls.ErrorTypes.NETWORK_ERROR:
             console.log("fatal network error encountered, try to recover");
             hls.startLoad();
-            // previewStatus.textContent = "Connecting..."; // Don't override the backend status
-            if (previewStatus) previewStatus.classList.remove("live");
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             console.log("fatal media error encountered, try to recover");

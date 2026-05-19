@@ -212,8 +212,28 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	}
 
 	// For v0.1, we use a simple stream copy from camera source to preview output.
+	// However, copying from an RTMP/WebRTC source to RTMPS/HLS targets can be flaky
+	// if the source doesn't have a stable GOP or compatible codecs.
+	// We'll use the transcode profile if configured, otherwise fallback to copy.
 	inputArgs := []string{"-re", "-i", cameraURL}
-	outputArgs := []string{"-c", "copy"}
+	outputArgs := []string{}
+
+	// TODO: For now we'll force transcode for go-live to ensure stability,
+	// similar to how we do it for slate.
+	outputArgs = append(outputArgs,
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-tune", "zerolatency",
+		"-pix_fmt", "yuv420p",
+		"-g", "60",
+		"-b:v", "3000k",
+		"-maxrate", "3000k",
+		"-bufsize", "6000k",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-ar", "48000",
+		"-ac", "2",
+	)
 
 	var firstErr error
 
