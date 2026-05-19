@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-18
+
+### Added
+- Structured logging using `slog` with support for JSON and text formats.
+- Configurable log levels (`debug`, `info`, `warn`, `error`) via `config.yml`.
+- API request logging middleware capturing method, path, status, and duration.
+- Detailed tracing of FFmpeg process lifecycle and function invocations.
+
 ## [0.1.1] - 2026-05-18
 
 ### Added
@@ -29,5 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+[0.1.2]: https://github.com/squoyster/GoLivePilot/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/squoyster/GoLivePilot/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/squoyster/GoLivePilot/releases/tag/v0.1.0

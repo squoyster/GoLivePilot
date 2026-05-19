@@ -76,7 +76,7 @@ media_engine:
 
     # HLS base URL exposed to the operator UI.
     # Usually routed through Caddy/GoLivePilot in production.
-    hls_base_url: "https://stream.example.com/hls"
+    hls_base_url: "https://stream.dynovo.ai/hls"
 
 ###############################################
 # Operator UX
@@ -149,7 +149,7 @@ ingests:
 
     preview:
       type: "hls"
-      url: "https://stream.example.com/hls/live/iphone/index.m3u8"
+      url: "https://stream.dynovo.ai/hls/live/iphone/index.m3u8"
 
 ###############################################
 # Slate / preview source
