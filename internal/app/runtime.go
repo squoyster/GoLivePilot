@@ -114,15 +114,12 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	}
 
 	// Profiles could be applied here if needed
+	req.Args = inputArgs
 	for _, p := range r.cfg.Profiles {
 		if p.ID == target.ProfileID {
-			req.Args = append(inputArgs, p.Args...)
+			req.Args = append(req.Args, p.Args...)
 			break
 		}
-	}
-
-	if len(req.Args) == 0 && len(inputArgs) > 0 {
-		req.Args = inputArgs
 	}
 
 	logger.Info("triggering supervisor start")
