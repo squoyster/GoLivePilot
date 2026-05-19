@@ -134,6 +134,7 @@ type TargetConfig struct {
 	LiveSource    string                 `json:"live_source" yaml:"live_source"`
 	ProfileID     string                 `json:"profile_id" yaml:"profile_id"`
 	RTMPSURLEnv   string                 `json:"rtmps_url_env" yaml:"rtmps_url_env"`
+	RTMPSKeyEnv   string                 `json:"rtmps_key_env" yaml:"rtmps_key_env"`
 	Lifecycle     TargetLifecycleConfig  `json:"lifecycle" yaml:"lifecycle"`
 	Control       map[string]interface{} `json:"control" yaml:"control"`
 	Reconnect     ReconnectConfig        `json:"reconnect" yaml:"reconnect"`

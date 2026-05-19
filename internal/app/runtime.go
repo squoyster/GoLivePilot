@@ -159,6 +159,16 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 			}
 		}
 
+		if targetURL != "" && t.RTMPSKeyEnv != "" {
+			key := os.Getenv(t.RTMPSKeyEnv)
+			if key == "" {
+				key = t.RTMPSKeyEnv
+			}
+			if key != "" {
+				targetURL = strings.TrimSuffix(targetURL, "/") + "/" + key
+			}
+		}
+
 		if targetURL == "" {
 			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
 			tLogger.Error("preview failed for target", "error", err)
@@ -255,6 +265,16 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 			// Support direct URLs if they look like RTMP/S
 			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
 				targetURL = t.RTMPSURLEnv
+			}
+		}
+
+		if targetURL != "" && t.RTMPSKeyEnv != "" {
+			key := os.Getenv(t.RTMPSKeyEnv)
+			if key == "" {
+				key = t.RTMPSKeyEnv
+			}
+			if key != "" {
+				targetURL = strings.TrimSuffix(targetURL, "/") + "/" + key
 			}
 		}
 
