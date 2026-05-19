@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/squoyster/golivepilot/internal/config"
@@ -58,7 +59,6 @@ func (r *Runtime) Status() map[string]any {
 }
 
 func (r *Runtime) StartPreview(ctx context.Context) error {
-	slog.Debug("starting preview")
 	var target *config.TargetConfig
 	for i := range r.cfg.Targets {
 		if r.cfg.Targets[i].Enabled {
@@ -68,19 +68,39 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	}
 
 	if target == nil {
+		slog.Error("preview failed: no enabled targets")
 		return fmt.Errorf("no enabled targets found")
 	}
 
+	logger := slog.With("target_id", target.ID, "mode", "preview")
+	logger.Debug("starting preview")
+
 	rtmpsURL := os.Getenv(target.RTMPSURLEnv)
 	if rtmpsURL == "" {
-		return fmt.Errorf("RTMPS URL env var %q is empty", target.RTMPSURLEnv)
+		// If it looks like a URL instead of an env var name, use it directly
+		if strings.HasPrefix(target.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(target.RTMPSURLEnv, "rtmps://") {
+			rtmpsURL = target.RTMPSURLEnv
+		} else {
+			err := fmt.Errorf("RTMPS URL env var %q is empty", target.RTMPSURLEnv)
+			logger.Error("preview failed", "error", err)
+			return err
+		}
 	}
 
 	input := r.cfg.Slate.Path
 	if !r.cfg.Slate.Enabled {
 		// Fallback or error? README says "start FFmpeg slate relay"
-		slog.Error("slate not enabled")
-		return fmt.Errorf("slate is not enabled in config")
+		err := fmt.Errorf("slate is not enabled in config")
+		logger.Error("preview failed", "error", err)
+		return err
+	}
+
+	// Slate needs to loop if it's an image or short video
+	inputArgs := []string{}
+	if r.cfg.Slate.Type == "image" {
+		inputArgs = append(inputArgs, "-re", "-loop", "1")
+	} else if r.cfg.Slate.Type == "video" {
+		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
 	}
 
 	req := ffmpeg.StartRequest{
@@ -96,12 +116,16 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	// Profiles could be applied here if needed
 	for _, p := range r.cfg.Profiles {
 		if p.ID == target.ProfileID {
-			req.Args = p.Args
+			req.Args = append(inputArgs, p.Args...)
 			break
 		}
 	}
 
-	slog.Info("triggering supervisor start", "target_id", target.ID, "mode", "preview")
+	if len(req.Args) == 0 && len(inputArgs) > 0 {
+		req.Args = inputArgs
+	}
+
+	logger.Info("triggering supervisor start")
 	return r.supervisor.Start(ctx, req)
 }
 

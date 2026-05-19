@@ -161,7 +161,7 @@ slate:
   # Static image or looped video shown before the camera goes live.
   # Mount this file into the container.
   type: "image" # image | video
-  path: "/assets/starting-soon.png"
+  path: "assets/starting-soon.png"
 
   # Text may be used later to auto-generate the slate.
   text: "Stream is starting soon"
@@ -185,7 +185,7 @@ slate:
 ###############################################
 
 ffmpeg:
-  binary: "/usr/bin/ffmpeg"
+  binary: "/opt/homebrew/bin/ffmpeg"
   log_level: "info"
 
   # Kill behavior for stopped/restarted relays.

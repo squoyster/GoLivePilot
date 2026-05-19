@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -111,7 +112,26 @@ func setupLogging(cfg config.LoggingConfig) {
 		level = slog.LevelError
 	}
 
-	opts := &slog.HandlerOptions{Level: level}
+	opts := &slog.HandlerOptions{
+		Level:     level,
+		AddSource: true,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				source, ok := a.Value.Any().(*slog.Source)
+				if ok {
+					// Ensure we use forward slashes for cross-platform consistency in logs
+					path := filepath.ToSlash(source.File)
+					parts := strings.Split(path, "/")
+					if len(parts) >= 2 {
+						source.File = parts[len(parts)-2] + "/" + parts[len(parts)-1]
+					} else {
+						source.File = path
+					}
+				}
+			}
+			return a
+		},
+	}
 	var handler slog.Handler
 
 	if strings.ToLower(cfg.Format) == "json" {

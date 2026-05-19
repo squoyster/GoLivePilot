@@ -39,6 +39,7 @@ func (rp *relayProcess) captureLogs(r io.Reader) {
 				}
 				rp.logs.lines = append(rp.logs.lines, line)
 				rp.logs.mu.Unlock()
+				rp.logger.Debug("ffmpeg log", "line", line)
 			}
 		}
 		if err != nil {
