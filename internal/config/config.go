@@ -1,5 +1,11 @@
 package config
 
+type EnvVarHelp struct {
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Example     string `json:"example" yaml:"example"`
+}
+
 type Config struct {
 	App         AppConfig         `json:"app" yaml:"app"`
 	Logging     LoggingConfig     `json:"logging" yaml:"logging"`
@@ -178,4 +184,42 @@ type BehaviorConfig struct {
 	StopOrder                 string `json:"stop_order" yaml:"stop_order"`
 	ReconnectTargetsWhileLive bool   `json:"reconnect_targets_while_live" yaml:"reconnect_targets_while_live"`
 	SourceLossPolicy          string `json:"source_loss_policy" yaml:"source_loss_policy"`
+}
+
+var RelevantEnvVars = []EnvVarHelp{
+	{
+		Name:        "GOLIVEPILOT_CONFIG",
+		Description: "Path to the YAML configuration file.",
+		Example:     "/etc/golivepilot/config.yml",
+	},
+	{
+		Name:        "GOLIVEPILOT_OPERATOR_PSK",
+		Description: "Pre-Shared Key for operator authentication (if enabled).",
+		Example:     "a-very-secure-random-string",
+	},
+	{
+		Name:        "FB_RTMPS_URL",
+		Description: "Facebook RTMPS base ingest URL.",
+		Example:     "rtmps://live-api-s.facebook.com:443/rtmp/",
+	},
+	{
+		Name:        "FB_RTMPS_KEY",
+		Description: "Facebook Stream Key.",
+		Example:     "FB-1234567890-0-AbCdEfGhIjKlMnOp",
+	},
+	{
+		Name:        "YT_RTMPS_URL",
+		Description: "YouTube RTMPS ingest URL.",
+		Example:     "rtmps://a.rtmps.youtube.com:443/live2/",
+	},
+	{
+		Name:        "FB_PAGE_ACCESS_TOKEN",
+		Description: "Facebook Page Access Token for API control.",
+		Example:     "EAAG...",
+	},
+	{
+		Name:        "YT_ACCESS_TOKEN",
+		Description: "YouTube OAuth2 Access Token for API control.",
+		Example:     "ya29...",
+	},
 }
