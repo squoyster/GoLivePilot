@@ -38,6 +38,7 @@ type Runtime struct {
 	started    time.Time
 	relays     map[string]RelayState
 	supervisor RelaySupervisor
+	switcher   ProgramSwitcher
 	sourceMode SourceMode
 	mtxClient  *mediamtx.Client
 }
@@ -48,6 +49,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		started:    time.Now(),
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
+		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor),
 		sourceMode: SourceStandby,
 		mtxClient:  mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL),
 	}
@@ -84,8 +86,8 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	r.sourceMode = SourceSlate
 
-	// 1. Start Program Source Relay (Slate -> live/program)
-	if err := r.startProgramSource(ctx, SourceSlate); err != nil {
+	// 1. Switch Program Source to Slate
+	if err := r.switcher.Switch(ctx, SourceSlate); err != nil {
 		return err
 	}
 
@@ -94,159 +96,12 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger.Info("waiting for program source readiness", "path", programPath)
 	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 10*time.Second); err != nil {
 		logger.Error("program source failed to become ready", "error", err)
-		_ = r.supervisor.Stop(ctx, TargetIDProgram)
 		return err
 	}
 	logger.Info("program source is ready")
 
 	// 4. Start Durable Platform Relays (live/program -> Platform)
 	return r.ensurePlatformRelays(ctx)
-}
-
-func (r *Runtime) startProgramSource(ctx context.Context, mode SourceMode) error {
-	logger := slog.With("target_id", TargetIDProgram, "mode", mode)
-
-	// Stop existing program source if any
-	if r.supervisor != nil {
-		slog.Info("stopping existing program source relay", "target_id", TargetIDProgram)
-		_ = r.supervisor.Stop(ctx, TargetIDProgram)
-	}
-
-	var input string
-	var inputArgs []string
-	var outputArgs []string
-
-	if mode == SourceSlate {
-		input = r.cfg.Slate.Path
-		if r.cfg.Slate.StartingImage != "" {
-			input = r.cfg.Slate.StartingImage
-		}
-		if !r.cfg.Slate.Enabled {
-			return fmt.Errorf("slate is not enabled in config")
-		}
-
-		if r.cfg.Slate.Type == "image" {
-			inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
-		} else if r.cfg.Slate.Type == "video" {
-			inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
-		}
-		inputArgs = append(inputArgs, "-i", input)
-
-		if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
-			inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
-			outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
-		} else {
-			outputArgs = append(outputArgs, "-map", "0:v:0")
-		}
-
-		// Use normalized transcode parameters for program output
-		outputArgs = append(outputArgs,
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-tune", "zerolatency",
-			"-pix_fmt", "yuv420p",
-			"-r", "30",
-			"-g", "60",
-			"-b:v", "2500k",
-			"-maxrate", "2500k",
-			"-bufsize", "5000k",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-ar", "48000",
-			"-ac", "2",
-			"-flvflags", "no_duration_filesize",
-			"-f", "flv",
-		)
-	} else if mode == SourceCamera {
-		input = r.cfg.Program.CameraSourceURL
-		if input == "" {
-			input = r.cfg.UI.CameraSourceURL
-		}
-		if input == "" {
-			return fmt.Errorf("camera source URL is not configured")
-		}
-
-		inputArgs = append(inputArgs, "-re", "-i", input)
-
-		// Transcode camera to program for stability
-		outputArgs = append(outputArgs,
-			"-fflags", "+genpts",
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-tune", "zerolatency",
-			"-pix_fmt", "yuv420p",
-			"-r", "30",
-			"-g", "60",
-			"-b:v", "2500k",
-			"-maxrate", "2500k",
-			"-bufsize", "5000k",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-ar", "48000",
-			"-ac", "2",
-			"-avoid_negative_ts", "make_zero",
-			"-flvflags", "no_duration_filesize",
-			"-f", "flv",
-		)
-	} else if mode == SourceEnded {
-		input = r.cfg.Slate.EndedImage
-		if input == "" {
-			return fmt.Errorf("ended slate image is not configured")
-		}
-
-		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30", "-i", input)
-
-		if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
-			inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
-			outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
-		} else {
-			outputArgs = append(outputArgs, "-map", "0:v:0")
-		}
-
-		// Use same normalized transcode parameters for ended slate
-		outputArgs = append(outputArgs,
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-tune", "zerolatency",
-			"-pix_fmt", "yuv420p",
-			"-r", "30",
-			"-g", "60",
-			"-b:v", "2500k",
-			"-maxrate", "2500k",
-			"-bufsize", "5000k",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-ar", "48000",
-			"-ac", "2",
-			"-flvflags", "no_duration_filesize",
-			"-f", "flv",
-		)
-	}
-
-	publishURL := r.cfg.Program.PublishURL
-	if publishURL == "" {
-		// Fallback to media engine base if not set
-		publishURL = r.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/program"
-	}
-
-	req := ffmpeg.StartRequest{
-		TargetID:   TargetIDProgram,
-		Label:      "Program Source",
-		Mode:       string(mode),
-		Binary:     r.cfg.FFmpeg.Binary,
-		LogLevel:   r.cfg.FFmpeg.LogLevel,
-		Input:      input,
-		Output:     publishURL,
-		InputArgs:  inputArgs,
-		OutputArgs: outputArgs,
-	}
-
-	logger.Info("starting program source relay", "input", input, "output", publishURL)
-	if err := r.supervisor.Start(ctx, req); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
@@ -360,7 +215,7 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 
 	// 2. Switch Program Source to Camera (Platform relays remain running)
 	logger.Info("switching program source to camera")
-	if err := r.startProgramSource(ctx, SourceCamera); err != nil {
+	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
 		return err
 	}
 
@@ -386,8 +241,8 @@ func (r *Runtime) StopAll() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := r.startProgramSource(ctx, SourceEnded); err != nil {
-		slog.Error("failed to start ended program source", "error", err)
+	if err := r.switcher.Switch(ctx, SourceEnded); err != nil {
+		slog.Error("failed to switch to ended program source", "error", err)
 		// Fallback to hard stop if we can't show ended slate
 		r.HardStop()
 		return
