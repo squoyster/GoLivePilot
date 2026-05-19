@@ -227,6 +227,18 @@ func parseTemplates() *template.Template {
     .video-placeholder.ended { background-image: url('/assets/stream-ended.png'); }
     .video-overlay { position: absolute; top: 0; left: 0; padding: 4px 8px; background: rgba(0,0,0,0.7); font-size: 14px; font-weight: bold; border-bottom-right-radius: 8px; }
     .video-overlay.live { color: #ff4d4d; }
+
+    /* Status Stepper */
+    .status-stepper { display: flex; justify-content: space-between; margin-bottom: 24px; position: relative; }
+    .status-stepper::before { content: ''; position: absolute; top: 18px; left: 0; right: 0; height: 2px; background: #333; z-index: 1; }
+    .step { z-index: 2; background: #111; padding: 0 10px; display: flex; flex-direction: column; align-items: center; flex: 1; }
+    .step-circle { width: 36px; height: 36px; border-radius: 50%; background: #333; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-bottom: 8px; transition: all 0.3s; border: 2px solid #111; }
+    .step-label { font-size: 12px; color: #888; transition: all 0.3s; }
+    .step.active .step-circle { background: #2d7ef7; color: white; box-shadow: 0 0 15px rgba(45, 126, 247, 0.5); }
+    .step.active .step-label { color: #fff; font-weight: bold; }
+    .step.completed .step-circle { background: #059669; color: white; }
+    .step.completed .step-label { color: #aaa; }
+    .step.live .step-circle { background: #b42318; box-shadow: 0 0 15px rgba(180, 35, 24, 0.5); }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -236,7 +248,28 @@ func parseTemplates() *template.Template {
   <p class="sub">{{.Subtitle}}</p>
 
   <div class="card">
-    <h2>Live Stream Viewer</h2>
+    <div class="status-stepper" id="stepper">
+      <div class="step" id="step-initialized">
+        <div class="step-circle">1</div>
+        <div class="step-label">Standby</div>
+      </div>
+      <div class="step" id="step-slate">
+        <div class="step-circle">2</div>
+        <div class="step-label">Preview</div>
+      </div>
+      <div class="step" id="step-camera">
+        <div class="step-circle">3</div>
+        <div class="step-label">Go Live</div>
+      </div>
+      <div class="step" id="step-none">
+        <div class="step-circle">4</div>
+        <div class="step-label">Stream Ended</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="viewer-header">Live Stream Viewer</h2>
     <div class="video-container">
       <video id="preview-video" controls autoplay muted playsinline></video>
       <div id="video-placeholder" class="video-placeholder"></div>
@@ -286,43 +319,115 @@ async function post(path) {
   }
 }
 
+// Status Management
+class StatusManager {
+  constructor() {
+    this.status = {
+      source_mode: 'unknown',
+      relays: {}
+    };
+    this.listeners = [];
+  }
+
+  subscribe(callback) {
+    this.listeners.push(callback);
+    // Call immediately with current state
+    callback(this.status);
+  }
+
+  update(newStatus) {
+    if (JSON.stringify(this.status) === JSON.stringify(newStatus)) return;
+    const oldStatus = this.status;
+    this.status = newStatus;
+    this.listeners.forEach(cb => cb(newStatus, oldStatus));
+  }
+}
+
+const statusManager = new StatusManager();
+
+// Register listeners for DOM updates
+statusManager.subscribe((status) => {
+  // Update the raw status pre
+  document.getElementById("status").textContent = JSON.stringify(status, null, 2);
+
+  if (!status.source_mode) return;
+
+  // Update Labels and Styles
+  let label = "Standby";
+  let headerLabel = "Live Stream Viewer";
+  
+  switch (status.source_mode) {
+    case "initialized": 
+      label = "Initialized"; 
+      headerLabel = "Live Stream Viewer: Standby";
+      break;
+    case "slate": 
+      label = "Preview (Slate)"; 
+      headerLabel = "Live Stream Viewer: Previewing";
+      break;
+    case "camera": 
+      label = "LIVE"; 
+      headerLabel = "Live Stream Viewer: BROADCASTING";
+      break;
+    case "none": 
+      label = "Stream Ended"; 
+      headerLabel = "Live Stream Viewer: Ended";
+      break;
+  }
+
+  previewStatus.textContent = label;
+  document.getElementById("viewer-header").textContent = headerLabel;
+
+  if (status.source_mode === "camera") {
+    previewStatus.classList.add("live");
+  } else {
+    previewStatus.classList.remove("live");
+  }
+
+  // Update Stepper
+  const steps = ['initialized', 'slate', 'camera', 'none'];
+  steps.forEach(function(mode) {
+    var el = document.getElementById('step-' + mode);
+    if (!el) return;
+    el.classList.remove('active', 'completed', 'live');
+    
+    if (status.source_mode === mode) {
+      el.classList.add('active');
+      if (mode === 'camera') el.classList.add('live');
+    } else {
+      // Mark previous steps as completed
+      const currentIndex = steps.indexOf(status.source_mode);
+      const stepIndex = steps.indexOf(mode);
+      if (currentIndex !== -1 && stepIndex < currentIndex) {
+        el.classList.add('completed');
+      }
+    }
+  });
+
+  // Handle Player vs Placeholder
+  const placeholder = document.getElementById("video-placeholder");
+  if (status.source_mode === "none" || status.source_mode === "initialized") {
+    stopPlayer();
+    placeholder.style.display = "block";
+    video.style.display = "none";
+    
+    // Fix: Explicitly manage classes to ensure correct image
+    if (status.source_mode === "none") {
+      placeholder.classList.add("ended");
+      placeholder.classList.remove("starting");
+    } else {
+      placeholder.classList.add("starting");
+      placeholder.classList.remove("ended");
+    }
+  } else {
+    placeholder.style.display = "none";
+    video.style.display = "block";
+  }
+});
+
 async function refresh() {
   const result = await api("/api/status");
-  document.getElementById("status").textContent = JSON.stringify(result, null, 2);
-  
-  if (result.source_mode) {
-    let label = "Standby";
-    switch (result.source_mode) {
-      case "initialized": label = "Initialized"; break;
-      case "slate": label = "Preview (Slate)"; break;
-      case "camera": label = "LIVE"; break;
-      case "none": label = "Ended"; break;
-    }
-    // Always update label if we have a valid source mode
-    previewStatus.textContent = label;
-    if (result.source_mode === "camera") {
-      previewStatus.classList.add("live");
-    } else {
-      previewStatus.classList.remove("live");
-    }
-
-    if (result.source_mode === "none" || result.source_mode === "initialized") {
-      stopPlayer();
-      const placeholder = document.getElementById("video-placeholder");
-      placeholder.style.display = "block";
-      if (result.source_mode === "none") {
-        placeholder.classList.add("ended");
-        placeholder.classList.remove("starting");
-      } else {
-        placeholder.classList.add("starting");
-        placeholder.classList.remove("ended");
-      }
-      video.style.display = "none";
-    } else {
-      document.getElementById("video-placeholder").style.display = "none";
-      video.style.display = "block";
-    }
-  }
+  statusManager.update(result);
 }
 
 setInterval(refresh, 2000);
