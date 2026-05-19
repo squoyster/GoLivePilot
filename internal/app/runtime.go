@@ -98,12 +98,11 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// Input 0: Image/Video Slate
 	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30", "-i", input)
+		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
 	} else if r.cfg.Slate.Type == "video" {
-		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1", "-i", input)
-	} else {
-		inputArgs = append(inputArgs, "-i", input)
+		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
 	}
+	inputArgs = append(inputArgs, "-i", input)
 
 	// Input 1: Silent Audio
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
@@ -117,17 +116,19 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	outputArgs = append(outputArgs,
 		"-c:v", "libx264",
 		"-preset", "veryfast",
-		"-tune", "stillimage",
+		"-tune", "zerolatency",
 		"-pix_fmt", "yuv420p",
 		"-r", "30",
 		"-g", "60",
-		"-b:v", "3000k",
-		"-maxrate", "3000k",
-		"-bufsize", "6000k",
+		"-b:v", "2500k",
+		"-maxrate", "2500k",
+		"-bufsize", "5000k",
 		"-c:a", "aac",
 		"-b:a", "128k",
 		"-ar", "48000",
 		"-ac", "2",
+		"-flvflags", "no_duration_filesize",
+		"-f", "flv",
 	)
 
 	// Note: We deliberately do NOT append profile args here for slate mode
@@ -221,29 +222,45 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 		r.supervisor.StopAll(ctx)
 	}
 
-	// For v0.1, we use a simple stream copy from camera source to preview output.
-	// However, copying from an RTMP/WebRTC source to RTMPS/HLS targets can be flaky
-	// if the source doesn't have a stable GOP or compatible codecs.
-	// We'll use the transcode profile if configured, otherwise fallback to copy.
 	inputArgs := []string{"-re", "-i", cameraURL}
 	outputArgs := []string{}
 
-	// TODO: For now we'll force transcode for go-live to ensure stability,
-	// similar to how we do it for slate.
-	outputArgs = append(outputArgs,
-		"-c:v", "libx264",
-		"-preset", "veryfast",
-		"-tune", "zerolatency",
-		"-pix_fmt", "yuv420p",
-		"-g", "60",
-		"-b:v", "3000k",
-		"-maxrate", "3000k",
-		"-bufsize", "6000k",
-		"-c:a", "aac",
-		"-b:a", "128k",
-		"-ar", "48000",
-		"-ac", "2",
-	)
+	// Find the profile
+	var profile *config.ProfileConfig
+	for _, p := range r.cfg.Profiles {
+		// Use the first target's profile if possible, or default to x264-720p
+		profileID := "x264-720p"
+		if len(r.cfg.Targets) > 0 && r.cfg.Targets[0].ProfileID != "" {
+			profileID = r.cfg.Targets[0].ProfileID
+		}
+		if p.ID == profileID {
+			profile = &p
+			break
+		}
+	}
+
+	if profile != nil {
+		outputArgs = append(outputArgs, profile.Args...)
+	} else {
+		// Fallback stable parameters
+		outputArgs = append(outputArgs,
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-r", "30",
+			"-g", "60",
+			"-b:v", "2500k",
+			"-maxrate", "2500k",
+			"-bufsize", "5000k",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-ar", "48000",
+			"-ac", "2",
+			"-flvflags", "no_duration_filesize",
+			"-f", "flv",
+		)
+	}
 
 	var firstErr error
 

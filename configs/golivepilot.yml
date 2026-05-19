@@ -253,12 +253,14 @@ profiles:
       - "zerolatency"
       - "-pix_fmt"
       - "yuv420p"
+      - "-r"
+      - "30"
       - "-b:v"
-      - "3000k"
+      - "2500k"
       - "-maxrate"
-      - "3000k"
+      - "2500k"
       - "-bufsize"
-      - "6000k"
+      - "5000k"
       - "-g"
       - "60"
       - "-c:a"
@@ -267,10 +269,14 @@ profiles:
       - "128k"
       - "-ar"
       - "48000"
+      - "-ac"
+      - "2"
       - "-avoid_negative_ts"
       - "make_zero"
       - "-flvflags"
       - "no_duration_filesize"
+      - "-f"
+      - "flv"
 
 ###############################################
 # Targets
@@ -308,7 +314,7 @@ targets:
     rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/"
 
     # Facebook Stream Key (required for RTMPS)
-    rtmps_key_env: "FB-2229633117784910-0-Ab7uMEMyXJihSRcT1xil19P"
+    rtmps_key_env: "FB-2229633117784910-0-Ab7uMEMyXJihSRcT1xil19IP"
 
     lifecycle:
       supports_preview: true

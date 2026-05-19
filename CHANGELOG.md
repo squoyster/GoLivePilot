@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.39] - 2026-05-19
+
+### Changed
+- Aligned FFmpeg streaming parameters with Facebook's recommended settings (2.5Mbps bitrate, 30fps, specific GOP size).
+- Refactored `StartPreview` and `StartGoLive` in `Runtime` to use consistent and optimized encoding parameters.
+- Updated the `x264-720p` profile to match industry-standard streaming requirements for social platforms.
+- Improved `BuildArgs` in the FFmpeg package to handle `-f flv` duplication gracefully.
+
 ## [0.1.38] - 2026-05-19
 
 ### Changed

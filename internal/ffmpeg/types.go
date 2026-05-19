@@ -64,8 +64,21 @@ func BuildArgs(req StartRequest) ([]string, error) {
 	// Profiles and other output-side arguments
 	args = append(args, req.OutputArgs...)
 
-	// Always output as FLV to the RTMPS URL
-	args = append(args, "-f", "flv", req.Output)
+	// Always output as FLV to the RTMPS URL.
+	// We check if -f flv is already present in OutputArgs to avoid duplication.
+	flvPresent := false
+	for i, a := range req.OutputArgs {
+		if a == "-f" && i+1 < len(req.OutputArgs) && req.OutputArgs[i+1] == "flv" {
+			flvPresent = true
+			break
+		}
+	}
+
+	if !flvPresent {
+		args = append(args, "-f", "flv")
+	}
+
+	args = append(args, req.Output)
 
 	return args, nil
 }
