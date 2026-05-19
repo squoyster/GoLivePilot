@@ -39,62 +39,41 @@ type RelayStatus struct {
 func BuildArgs(req StartRequest) ([]string, error) {
 	var args []string
 
-	// If we have profile-like args, we need to be careful about where -i goes.
-	// Usually -re -loop 1 goes BEFORE -i.
-	// Let's assume req.Args contains flags that might need to be before OR after -i.
-	// But in our current StartPreview, we put -re -loop before profile args.
+	// Input arguments (placed before -i)
+	var inputArgs []string
+	// Output arguments (placed after -i <input> and before the final output URL)
+	var outputArgs []string
 
-	// A better way: if req.Args exists, it's the middle part.
-	// We'll put -i req.Input at the start if it's not already in req.Args (not likely here).
+	// Heuristically separate input and output arguments from req.Args.
+	// This is tricky because req.Args is currently a mix.
+	// Let's assume req.Args starts with input options (-re, -loop, etc.)
+	// and continues with output options.
 
-	// Actually, let's keep it simple and fix BuildArgs to NOT be too smart but be correct.
-	// If req.Args is provided, we assume it contains everything EXCEPT the -i <input> and the final output.
-	// Wait, some flags MUST go before -i (like -re, -loop).
-	// Let's change the strategy: StartPreview should provide the FULL argument list if it wants control.
-
-	args = append(args, req.Args...)
-
-	// Insert -i if it's missing (heuristically)
-	hasInput := false
-	for _, a := range args {
-		if a == "-i" {
-			hasInput = true
+	i := 0
+	for i < len(req.Args) {
+		arg := req.Args[i]
+		if arg == "-re" || arg == "-loop" || arg == "-stream_loop" {
+			inputArgs = append(inputArgs, arg)
+			if (arg == "-loop" || arg == "-stream_loop") && i+1 < len(req.Args) {
+				inputArgs = append(inputArgs, req.Args[i+1])
+				i += 2
+			} else {
+				i++
+			}
+		} else {
+			// Once we hit something that isn't a known input flag, assume the rest are output flags.
+			outputArgs = append(outputArgs, req.Args[i:]...)
 			break
 		}
 	}
-	if !hasInput {
-		// Try to find a good spot for -i. Usually after -re etc.
-		// For now, let's just prepend it if no flags are there, or append it after the first few flags.
-		// Simplest: if we have req.Input, and no -i in args, we must add it.
-		// We'll put it at the beginning, but AFTER any -re or -loop.
 
-		insertIdx := 0
-		for i, a := range args {
-			if strings.HasPrefix(a, "-") && (a == "-re" || a == "-loop" || a == "-stream_loop") {
-				// skip these and their values if any
-				insertIdx = i + 1
-				if a != "-re" && i+1 < len(args) {
-					insertIdx = i + 2
-				}
-			} else {
-				break
-			}
-		}
+	args = append(args, inputArgs...)
+	args = append(args, "-i", req.Input)
+	args = append(args, outputArgs...)
 
-		if insertIdx > len(args) {
-			insertIdx = len(args)
-		}
-
-		newArgs := make([]string, 0, len(args)+2)
-		newArgs = append(newArgs, args[:insertIdx]...)
-		newArgs = append(newArgs, "-i", req.Input)
-		newArgs = append(newArgs, args[insertIdx:]...)
-		args = newArgs
-	}
-
-	// Fallback encoding if nothing specified
+	// Fallback encoding if nothing specified in outputArgs
 	hasCodec := false
-	for _, a := range args {
+	for _, a := range outputArgs {
 		if strings.HasPrefix(a, "-c") || a == "-codec" {
 			hasCodec = true
 			break
@@ -103,6 +82,9 @@ func BuildArgs(req StartRequest) ([]string, error) {
 	if !hasCodec {
 		args = append(args, "-c", "copy")
 	}
+
+	// Set loglevel
+	args = append(args, "-loglevel", req.LogLevel)
 
 	// Always output as FLV to the RTMPS URL
 	args = append(args, "-f", "flv", req.Output)

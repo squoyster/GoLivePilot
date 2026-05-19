@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -58,6 +59,7 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 	if err != nil {
 		return err
 	}
+	slog.Info("supervisor: final ffmpeg args", "binary", req.Binary, "args", strings.Join(args, " "))
 
 	procCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, req.Binary, args...)
