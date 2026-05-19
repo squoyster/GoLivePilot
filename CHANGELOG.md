@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+## [0.1.18] - 2026-05-18
+
+### Fixed
+- Improved FFmpeg slate relay stability by explicitly setting the `-framerate` for image slates and refining `-shortest` usage.
+- Refactored `BuildArgs` to more reliably handle multiple input files (e.g., silent audio and slate image) while maintaining correct argument ordering.
+
 ## [0.1.17] - 2026-05-18
 
 ### Fixed
@@ -134,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.18]: https://github.com/squoyster/GoLivePilot/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/squoyster/GoLivePilot/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/squoyster/GoLivePilot/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/squoyster/GoLivePilot/compare/v0.1.14...v0.1.15
