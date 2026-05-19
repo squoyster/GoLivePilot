@@ -97,7 +97,7 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// Slate needs to loop if it's an image or short video
 	inputArgs := []string{}
-	outputArgs := []string{}
+	outputArgs := []string{"-shortest"}
 
 	// Add silent audio if enabled for slate to ensure RTMP stability
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {

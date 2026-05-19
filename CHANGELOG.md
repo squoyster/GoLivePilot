@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+## [0.1.17] - 2026-05-18
+
+### Fixed
+- Fixed FFmpeg "End of file" errors during preview by adding `-shortest` to ensure output streams are correctly synchronized between the looped slate image and the silent audio stream.
+- Refined `BuildArgs` in `internal/ffmpeg/types.go` to ensure output-side arguments (like profiles) are always placed after the main input file.
+
 ## [0.1.16] - 2026-05-18
 
 ### Fixed
@@ -128,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.17]: https://github.com/squoyster/GoLivePilot/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/squoyster/GoLivePilot/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/squoyster/GoLivePilot/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/squoyster/GoLivePilot/compare/v0.1.13...v0.1.14
