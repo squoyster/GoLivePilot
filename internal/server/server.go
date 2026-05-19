@@ -223,6 +223,7 @@ func parseTemplates() *template.Template {
     .video-container { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 8px; overflow: hidden; margin-top: 12px; position: relative; }
     video { width: 100%; height: 100%; object-fit: contain; }
     .video-placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000 no-repeat center center; background-size: contain; display: none; }
+    .video-placeholder.standing { background-image: url('/assets/standing-by.png'); }
     .video-placeholder.starting { background-image: url('/assets/starting-soon.png'); }
     .video-placeholder.ended { background-image: url('/assets/stream-ended.png'); }
     .video-overlay { position: absolute; top: 0; left: 0; padding: 4px 8px; background: rgba(0,0,0,0.7); font-size: 14px; font-weight: bold; border-bottom-right-radius: 8px; }
@@ -424,10 +425,13 @@ statusManager.subscribe((status) => {
       // Fix: Explicitly manage classes to ensure correct image
       if (status.source_mode === "none") {
         placeholder.classList.add("ended");
-        placeholder.classList.remove("starting");
+        placeholder.classList.remove("starting", "standing");
+      } else if (status.source_mode === "initialized") {
+        placeholder.classList.add("standing");
+        placeholder.classList.remove("starting", "ended");
       } else {
         placeholder.classList.add("starting");
-        placeholder.classList.remove("ended");
+        placeholder.classList.remove("standing", "ended");
       }
     } else {
       placeholder.style.display = "none";

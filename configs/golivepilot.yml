@@ -308,7 +308,7 @@ targets:
     rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/"
 
     # Facebook Stream Key (required for RTMPS)
-    rtmps_key_env: "FB-2229633117784910-0-Ab7uMEMyXJihSRcT1xil19"
+    rtmps_key_env: "FB-2229633117784910-0-Ab7uMEMyXJihSRcT1xil19P"
 
     lifecycle:
       supports_preview: true
