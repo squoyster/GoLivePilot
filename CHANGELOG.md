@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.31] - 2026-05-19
+
+### Added
+- Introduced a central `StatusManager` in the frontend to handle event-driven UI updates.
+- Added a visual status stepper to track and highlight the current stream state (Standby -> Preview -> Go Live -> Stream Ended).
+- Enhanced the video viewer header to dynamically display the current stream mode.
+
+### Fixed
+- Fixed inconsistent UI updates by abstracting status tracking and DOM manipulations.
+- Corrected the `stream-ended.png` placeholder logic to ensure it displays correctly when the stream ends.
+
 ## [0.1.30] - 2026-05-18
 
 ### Added
