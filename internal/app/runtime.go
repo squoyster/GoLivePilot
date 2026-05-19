@@ -99,21 +99,38 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	inputArgs := []string{}
 	outputArgs := []string{}
 
+	// Global/Input 0 (Video)
 	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "25")
+		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
 	} else if r.cfg.Slate.Type == "video" {
 		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
 	}
+	inputArgs = append(inputArgs, "-i", input)
 
-	// Add silent audio if enabled for slate to ensure RTMP stability
+	// Input 1 (Audio)
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
-		// cl=stereo is used to avoid "1 channels (FR)" issue with AAC encoder
-		// Using -f lavfi -i anullsrc as a separate input.
-		// We use -shortest to stop the silent audio when the video stops,
-		// but since video is looped infinitely, they should both continue.
-		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=stereo", r.cfg.Slate.Audio.SampleRate))
-		outputArgs = append(outputArgs, "-shortest")
+		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
+		outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
+	} else {
+		outputArgs = append(outputArgs, "-map", "0:v:0")
 	}
+
+	// Encoding parameters from user example
+	outputArgs = append(outputArgs,
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-tune", "stillimage",
+		"-pix_fmt", "yuv420p",
+		"-r", "30",
+		"-g", "60",
+		"-b:v", "2500k",
+		"-maxrate", "2500k",
+		"-bufsize", "5000k",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-ar", "48000",
+		"-ac", "2",
+	)
 
 	// 1. Start preview to MediaMTX if possible
 	previewURL := ""
