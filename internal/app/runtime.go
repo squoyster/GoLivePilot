@@ -82,16 +82,9 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger := slog.With("mode", "preview")
 	logger.Debug("starting preview")
 
-	// 1. Stop platform relays first to avoid races reading from a restarting program source
-	for _, t := range r.cfg.Targets {
-		if t.Enabled {
-			_ = r.supervisor.Stop(ctx, t.ID)
-		}
-	}
-
 	r.sourceMode = SourceSlate
 
-	// 2. Start Program Source Relay (Slate -> live/program)
+	// 1. Start Program Source Relay (Slate -> live/program)
 	if err := r.startProgramSource(ctx, SourceSlate); err != nil {
 		return err
 	}
@@ -192,6 +185,39 @@ func (r *Runtime) startProgramSource(ctx context.Context, mode SourceMode) error
 			"-ar", "48000",
 			"-ac", "2",
 			"-avoid_negative_ts", "make_zero",
+			"-flvflags", "no_duration_filesize",
+			"-f", "flv",
+		)
+	} else if mode == SourceEnded {
+		input = r.cfg.Slate.EndedImage
+		if input == "" {
+			return fmt.Errorf("ended slate image is not configured")
+		}
+
+		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30", "-i", input)
+
+		if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
+			inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
+			outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
+		} else {
+			outputArgs = append(outputArgs, "-map", "0:v:0")
+		}
+
+		// Use same normalized transcode parameters for ended slate
+		outputArgs = append(outputArgs,
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-r", "30",
+			"-g", "60",
+			"-b:v", "2500k",
+			"-maxrate", "2500k",
+			"-bufsize", "5000k",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-ar", "48000",
+			"-ac", "2",
 			"-flvflags", "no_duration_filesize",
 			"-f", "flv",
 		)
@@ -352,7 +378,28 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 }
 
 func (r *Runtime) StopAll() {
-	slog.Info("stopping all relays")
+	slog.Info("stopping all relays - switching to ended slate")
+	r.sourceMode = SourceEnded
+
+	// Instead of stopping everything immediately, we switch to Ended slate.
+	// We'll keep the platform relays running so they pick up the ended image.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := r.startProgramSource(ctx, SourceEnded); err != nil {
+		slog.Error("failed to start ended program source", "error", err)
+		// Fallback to hard stop if we can't show ended slate
+		r.HardStop()
+		return
+	}
+
+	// Wait a bit for the ended slate to propagate before we actually kill everything?
+	// For now, let's keep it in "ended" state. The user can HardStop if they want to.
+	// Or we can schedule a hard stop.
+}
+
+func (r *Runtime) HardStop() {
+	slog.Info("hard stopping all relays")
 	r.sourceMode = SourceStopped
 	if r.supervisor != nil {
 		r.supervisor.StopAll(context.Background())

@@ -18,6 +18,7 @@ type Runtime interface {
 	StartPreview(ctx context.Context) error
 	StartGoLive(ctx context.Context) error
 	StopAll()
+	HardStop()
 }
 
 type Server struct {
@@ -145,7 +146,11 @@ func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	logger := slog.With("method", "POST", "path", "/api/stop")
 	logger.Info("api call")
-	s.runtime.StopAll()
+	if r.URL.Query().Get("hard") == "true" {
+		s.runtime.HardStop()
+	} else {
+		s.runtime.StopAll()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "stop",
@@ -224,6 +229,7 @@ func parseTemplates() *template.Template {
 
     .controls-grid { display: flex; flex-wrap: wrap; gap: 12px; }
     .controls-grid button { flex: 1; min-width: 200px; margin: 0; }
+    .controls-grid button.reset { background: #444; color: #ccc; }
 
     @media (max-width: 600px) {
       .controls-grid { flex-direction: column; }
@@ -295,7 +301,8 @@ func parseTemplates() *template.Template {
     <div class="controls-grid">
       <button class="preview" onclick="post('/api/preview')">Preview</button>
       <button class="live" onclick="post('/api/go-live')">Go Live</button>
-      <button class="stop" onclick="post('/api/stop')">Stop</button>
+      <button class="stop" id="btn-stop" onclick="post('/api/stop')">Stop Stream</button>
+      <button class="reset" id="btn-reset" onclick="post('/api/stop?hard=true')">Reset Everything</button>
     </div>
   </div>
 
@@ -411,6 +418,19 @@ statusManager.subscribe((status) => {
 
   const viewerHeader = document.getElementById("viewer-header");
   if (viewerHeader) viewerHeader.textContent = headerLabel;
+
+  // Update Buttons
+  const btnStop = document.getElementById("btn-stop");
+  const btnReset = document.getElementById("btn-reset");
+  if (btnStop) {
+    if (status.source_mode === "ended" || status.source_mode === "stopped") {
+      btnStop.disabled = true;
+      btnStop.style.opacity = "0.5";
+    } else {
+      btnStop.disabled = false;
+      btnStop.style.opacity = "1";
+    }
+  }
 
   // Update Stepper
   const steps = ['standby', 'slate', 'camera', 'ended'];

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.43] - 2026-05-19
+
+### Added
+- Introduced a two-stage "Stop" process: "Stop Stream" now transitions to an "Ended" slate while keeping platform connections live, and "Reset Everything" performs a hard stop.
+- Added a `HardStop` method to `Runtime` and exposed it via `/api/stop?hard=true`.
+
+### Changed
+- Improved stream stability by ensuring platform relays are NOT stopped during the transition back to Preview or between Slate/Camera.
+- Refactored `StartPreview` to maintain existing platform relays, allowing for seamless source switching without dropping the Facebook/YouTube session.
+- Updated the frontend UI with clearer "Stop Stream" and "Reset Everything" buttons and improved status feedback.
+
 ## [0.1.42] - 2026-05-19
 
 ### Added
