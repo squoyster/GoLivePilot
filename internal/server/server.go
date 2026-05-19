@@ -216,9 +216,21 @@ func parseTemplates() *template.Template {
     h1 { margin-bottom: 0; }
     .sub { color: #aaa; margin-top: 4px; }
     .card { background: #1c1c1c; border: 1px solid #333; border-radius: 12px; padding: 16px; margin: 16px 0; }
-    button { font-size: 18px; padding: 14px 18px; margin: 6px; border-radius: 10px; border: 0; cursor: pointer; }
-    button.primary { background: #2d7ef7; color: white; }
-    button.danger { background: #b42318; color: white; }
+    button { font-size: 18px; padding: 14px 18px; margin: 6px; border-radius: 10px; border: 0; cursor: pointer; transition: background 0.2s; }
+    button.preview { background: #2d7ef7; color: white; }
+    button.live { background: #059669; color: white; }
+    button.stop { background: #b42318; color: white; }
+    button:active { filter: brightness(0.8); }
+
+    .controls-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .controls-grid button { flex: 1; min-width: 200px; margin: 0; }
+
+    @media (max-width: 600px) {
+      .controls-grid { flex-direction: column; }
+      .controls-grid button { width: 100%; height: 60px; font-weight: bold; }
+      /* Add extra spacing for the stop button on mobile to prevent accidents */
+      .controls-grid button.stop { margin-top: 12px; }
+    }
     pre { background: #050505; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; }
     .video-container { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 8px; overflow: hidden; margin-top: 12px; position: relative; }
     video { width: 100%; height: 100%; object-fit: contain; }
@@ -280,9 +292,11 @@ func parseTemplates() *template.Template {
 
   <div class="card">
     <h2>Controls</h2>
-    <button onclick="post('/api/preview')">Preview</button>
-    <button class="primary" onclick="post('/api/go-live')">Go Live</button>
-    <button class="danger" onclick="post('/api/stop')">Stop</button>
+    <div class="controls-grid">
+      <button class="preview" onclick="post('/api/preview')">Preview</button>
+      <button class="live" onclick="post('/api/go-live')">Go Live</button>
+      <button class="stop" onclick="post('/api/stop')">Stop</button>
+    </div>
   </div>
 
   <div class="card">
