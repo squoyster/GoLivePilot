@@ -1,16 +1,15 @@
 package ffmpeg
 
 import (
+	"bufio"
 	"io"
-	"strings"
 	"sync"
 )
 
 type RingLog struct {
-	mu     sync.Mutex
-	lines  []string
-	max    int
-	cursor int
+	mu    sync.Mutex
+	lines []string
+	max   int
 }
 
 func NewRingLog(max int) *RingLog {
@@ -27,23 +26,20 @@ func (r *RingLog) Lines() []string {
 }
 
 func (rp *relayProcess) captureLogs(r io.Reader) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			line := strings.TrimSpace(string(buf[:n]))
-			if line != "" {
-				rp.logs.mu.Lock()
-				if len(rp.logs.lines) >= rp.logs.max {
-					rp.logs.lines = rp.logs.lines[1:]
-				}
-				rp.logs.lines = append(rp.logs.lines, line)
-				rp.logs.mu.Unlock()
-				rp.logger.Debug("ffmpeg log", "line", line)
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			rp.logs.mu.Lock()
+			if len(rp.logs.lines) >= rp.logs.max {
+				rp.logs.lines = rp.logs.lines[1:]
 			}
+			rp.logs.lines = append(rp.logs.lines, line)
+			rp.logs.mu.Unlock()
+			rp.logger.Debug("ffmpeg log", "line", line)
 		}
-		if err != nil {
-			break
-		}
+	}
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		rp.logger.Error("log scanner error", "error", err)
 	}
 }

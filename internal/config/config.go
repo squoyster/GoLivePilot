@@ -86,10 +86,28 @@ type PreviewConfig struct {
 }
 
 type SlateConfig struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Type    string `json:"type" yaml:"type"`
-	Path    string `json:"path" yaml:"path"`
-	Text    string `json:"text" yaml:"text"`
+	Enabled bool             `json:"enabled" yaml:"enabled"`
+	Type    string           `json:"type" yaml:"type"`
+	Path    string           `json:"path" yaml:"path"`
+	Text    string           `json:"text" yaml:"text"`
+	Audio   SlateAudioConfig `json:"audio" yaml:"audio"`
+	Video   SlateVideoConfig `json:"video" yaml:"video"`
+}
+
+type SlateAudioConfig struct {
+	Enabled    bool   `json:"enabled" yaml:"enabled"`
+	Type       string `json:"type" yaml:"type"`
+	SampleRate int    `json:"sample_rate" yaml:"sample_rate"`
+	Channels   int    `json:"channels" yaml:"channels"`
+	Bitrate    string `json:"bitrate" yaml:"bitrate"`
+}
+
+type SlateVideoConfig struct {
+	Width            int    `json:"width" yaml:"width"`
+	Height           int    `json:"height" yaml:"height"`
+	FrameRate        int    `json:"frame_rate" yaml:"frame_rate"`
+	Bitrate          string `json:"bitrate" yaml:"bitrate"`
+	KeyframeInterval int    `json:"keyframe_interval" yaml:"keyframe_interval"`
 }
 
 type FFmpegConfig struct {

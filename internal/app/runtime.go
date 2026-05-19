@@ -97,10 +97,16 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// Slate needs to loop if it's an image or short video
 	inputArgs := []string{}
+	outputArgs := []string{}
 	if r.cfg.Slate.Type == "image" {
 		inputArgs = append(inputArgs, "-re", "-loop", "1")
 	} else if r.cfg.Slate.Type == "video" {
 		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
+	}
+
+	// Add silent audio if enabled for slate to ensure RTMP stability
+	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
+		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=%d", r.cfg.Slate.Audio.SampleRate, r.cfg.Slate.Audio.Channels))
 	}
 
 	// 1. Start preview to MediaMTX if possible
@@ -120,21 +126,22 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	if previewURL != "" {
 		logger.Info("starting preview relay to mediamtx", "url", previewURL)
 		preReq := ffmpeg.StartRequest{
-			TargetID: "__preview__",
-			Label:    "Browser Preview",
-			Mode:     "preview",
-			Binary:   r.cfg.FFmpeg.Binary,
-			LogLevel: r.cfg.FFmpeg.LogLevel,
-			Input:    input,
-			Output:   previewURL,
-			Args:     inputArgs,
+			TargetID:   "__preview__",
+			Label:      "Browser Preview",
+			Mode:       "preview",
+			Binary:     r.cfg.FFmpeg.Binary,
+			LogLevel:   r.cfg.FFmpeg.LogLevel,
+			Input:      input,
+			Output:     previewURL,
+			InputArgs:  inputArgs,
+			OutputArgs: outputArgs,
 		}
 		// Profiles could be applied here if needed, but for internal preview
 		// we might want a lighter profile or just default.
 		// Let's use the target's profile if available for consistency.
 		for _, p := range r.cfg.Profiles {
 			if p.ID == target.ProfileID {
-				preReq.Args = append(preReq.Args, p.Args...)
+				preReq.OutputArgs = append(preReq.OutputArgs, p.Args...)
 				break
 			}
 		}
@@ -146,20 +153,20 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// 2. Start preview to external target
 	req := ffmpeg.StartRequest{
-		TargetID: target.ID,
-		Label:    target.Label,
-		Mode:     "preview",
-		Binary:   r.cfg.FFmpeg.Binary,
-		LogLevel: r.cfg.FFmpeg.LogLevel,
-		Input:    input,
-		Output:   rtmpsURL,
+		TargetID:   target.ID,
+		Label:      target.Label,
+		Mode:       "preview",
+		Binary:     r.cfg.FFmpeg.Binary,
+		LogLevel:   r.cfg.FFmpeg.LogLevel,
+		Input:      input,
+		Output:     rtmpsURL,
+		InputArgs:  inputArgs,
+		OutputArgs: outputArgs,
 	}
 
-	// Profiles could be applied here if needed
-	req.Args = inputArgs
 	for _, p := range r.cfg.Profiles {
 		if p.ID == target.ProfileID {
-			req.Args = append(req.Args, p.Args...)
+			req.OutputArgs = append(req.OutputArgs, p.Args...)
 			break
 		}
 	}

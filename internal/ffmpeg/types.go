@@ -15,14 +15,15 @@ const (
 )
 
 type StartRequest struct {
-	TargetID string
-	Label    string
-	Mode     string
-	Binary   string
-	LogLevel string
-	Input    string
-	Output   string
-	Args     []string
+	TargetID   string
+	Label      string
+	Mode       string
+	Binary     string
+	LogLevel   string
+	Input      string
+	Output     string
+	InputArgs  []string
+	OutputArgs []string
 }
 
 type RelayStatus struct {
@@ -39,41 +40,13 @@ type RelayStatus struct {
 func BuildArgs(req StartRequest) ([]string, error) {
 	var args []string
 
-	// Input arguments (placed before -i)
-	var inputArgs []string
-	// Output arguments (placed after -i <input> and before the final output URL)
-	var outputArgs []string
-
-	// Heuristically separate input and output arguments from req.Args.
-	// This is tricky because req.Args is currently a mix.
-	// Let's assume req.Args starts with input options (-re, -loop, etc.)
-	// and continues with output options.
-
-	i := 0
-	for i < len(req.Args) {
-		arg := req.Args[i]
-		if arg == "-re" || arg == "-loop" || arg == "-stream_loop" {
-			inputArgs = append(inputArgs, arg)
-			if (arg == "-loop" || arg == "-stream_loop") && i+1 < len(req.Args) {
-				inputArgs = append(inputArgs, req.Args[i+1])
-				i += 2
-			} else {
-				i++
-			}
-		} else {
-			// Once we hit something that isn't a known input flag, assume the rest are output flags.
-			outputArgs = append(outputArgs, req.Args[i:]...)
-			break
-		}
-	}
-
-	args = append(args, inputArgs...)
+	args = append(args, req.InputArgs...)
 	args = append(args, "-i", req.Input)
-	args = append(args, outputArgs...)
+	args = append(args, req.OutputArgs...)
 
-	// Fallback encoding if nothing specified in outputArgs
+	// Fallback encoding if nothing specified in OutputArgs
 	hasCodec := false
-	for _, a := range outputArgs {
+	for _, a := range req.OutputArgs {
 		if strings.HasPrefix(a, "-c") || a == "-codec" {
 			hasCodec = true
 			break
