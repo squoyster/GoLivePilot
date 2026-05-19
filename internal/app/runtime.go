@@ -99,15 +99,20 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	inputArgs := []string{}
 	outputArgs := []string{}
 
-	// Global/Input 0 (Video)
-	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
-	} else if r.cfg.Slate.Type == "video" {
-		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
-	}
-	inputArgs = append(inputArgs, "-i", input)
+	// Finalize Input 0 (Video Slate)
+	// We use the same parameters for both local preview and external target slate relays
+	// to ensure consistency and because they have been proven stable.
 
-	// Input 1 (Audio)
+	// Input 0: Image/Video Slate
+	if r.cfg.Slate.Type == "image" {
+		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30", "-i", input)
+	} else if r.cfg.Slate.Type == "video" {
+		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1", "-i", input)
+	} else {
+		inputArgs = append(inputArgs, "-i", input)
+	}
+
+	// Input 1: Silent Audio
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
 		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
 		outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
@@ -115,7 +120,7 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		outputArgs = append(outputArgs, "-map", "0:v:0")
 	}
 
-	// Encoding parameters from user example
+	// Stable encoding parameters for slate mode
 	outputArgs = append(outputArgs,
 		"-c:v", "libx264",
 		"-preset", "veryfast",
@@ -123,79 +128,69 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		"-pix_fmt", "yuv420p",
 		"-r", "30",
 		"-g", "60",
-		"-b:v", "2500k",
-		"-maxrate", "2500k",
-		"-bufsize", "5000k",
+		"-b:v", "3000k",
+		"-maxrate", "3000k",
+		"-bufsize", "6000k",
 		"-c:a", "aac",
 		"-b:a", "128k",
 		"-ar", "48000",
 		"-ac", "2",
 	)
 
-	// 1. Start preview to MediaMTX if possible
-	previewURL := ""
-	for _, ing := range r.cfg.Ingests {
-		if ing.ID == target.IngestID {
-			if ing.InternalSourceURL != "" {
-				previewURL = ing.InternalSourceURL
-			} else if r.cfg.MediaEngine.Type == "mediamtx" {
-				base := strings.TrimSuffix(r.cfg.MediaEngine.MediaMTX.InternalRTMPBase, "/")
-				previewURL = fmt.Sprintf("%s/%s", base, strings.TrimPrefix(ing.Path, "/"))
-			}
-			break
-		}
-	}
+	// Note: We deliberately do NOT append profile args here for slate mode
+	// to avoid duplicate/conflicting codec and format options.
 
-	if previewURL != "" {
-		logger.Info("starting preview relay to mediamtx", "url", previewURL)
-		preReq := ffmpeg.StartRequest{
-			TargetID:   "__preview__",
-			Label:      "Browser Preview",
+	// 1. Start relays for ALL enabled targets
+	// This includes our special "__preview__" target if it's in the config.
+
+	var firstErr error
+
+	for _, t := range r.cfg.Targets {
+		if !t.Enabled {
+			continue
+		}
+
+		// Skip if target doesn't support preview
+		if t.Lifecycle.SupportsPreview == false && t.ID != "__preview__" {
+			continue
+		}
+
+		tLogger := slog.With("target_id", t.ID, "mode", "preview")
+
+		// Resolve output URL
+		targetURL := os.Getenv(t.RTMPSURLEnv)
+		if targetURL == "" {
+			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
+				targetURL = t.RTMPSURLEnv
+			} else {
+				tLogger.Warn("skipping target: RTMPS URL env var is empty", "env", t.RTMPSURLEnv)
+				continue
+			}
+		}
+
+		tLogger.Info("starting slate relay", "url", targetURL)
+
+		req := ffmpeg.StartRequest{
+			TargetID:   t.ID,
+			Label:      t.Label,
 			Mode:       "preview",
 			Binary:     r.cfg.FFmpeg.Binary,
 			LogLevel:   r.cfg.FFmpeg.LogLevel,
 			Input:      input,
-			Output:     previewURL,
+			Output:     targetURL,
 			InputArgs:  inputArgs,
 			OutputArgs: outputArgs,
 		}
-		// Profiles could be applied here if needed, but for internal preview
-		// we might want a lighter profile or just default.
-		// Let's use the target's profile if available for consistency.
-		for _, p := range r.cfg.Profiles {
-			if p.ID == target.ProfileID {
-				preReq.OutputArgs = append(preReq.OutputArgs, p.Args...)
-				break
+
+		if err := r.supervisor.Start(ctx, req); err != nil {
+			tLogger.Error("failed to start slate relay", "error", err)
+			if firstErr == nil {
+				firstErr = err
 			}
 		}
-
-		if err := r.supervisor.Start(ctx, preReq); err != nil {
-			logger.Warn("failed to start mediamtx preview relay", "error", err)
-		}
 	}
 
-	// 2. Start preview to external target
-	req := ffmpeg.StartRequest{
-		TargetID:   target.ID,
-		Label:      target.Label,
-		Mode:       "preview",
-		Binary:     r.cfg.FFmpeg.Binary,
-		LogLevel:   r.cfg.FFmpeg.LogLevel,
-		Input:      input,
-		Output:     rtmpsURL,
-		InputArgs:  inputArgs,
-		OutputArgs: outputArgs,
-	}
-
-	for _, p := range r.cfg.Profiles {
-		if p.ID == target.ProfileID {
-			req.OutputArgs = append(req.OutputArgs, p.Args...)
-			break
-		}
-	}
-
-	logger.Info("triggering supervisor start")
-	return r.supervisor.Start(ctx, req)
+	return firstErr
 }
 
 func (r *Runtime) StopAll() {

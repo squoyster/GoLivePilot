@@ -281,6 +281,15 @@ profiles:
 ###############################################
 
 targets:
+  - id: "__preview__"
+    label: "Browser Preview"
+    platform: "local"
+    enabled: true
+    preview_source: "slate"
+    live_source: "camera"
+    profile_id: "x264-720p"
+    rtmps_url_env: "LOCAL_PREVIEW_RTMP_URL"
+
   - id: "facebook-main"
     label: "Facebook"
     platform: "facebook"

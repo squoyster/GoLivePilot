@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] - 2026-05-18
+
+### Changed
+- Refactored `StartPreview` to iterate through all enabled targets and initiate slate relays to all of them.
+- Updated `configs/golivepilot.yml` and `configs/golivepilot.example.yml` to include a dedicated local browser preview target.
+- Standardized FFmpeg slate relay parameters for maximum compatibility with both local and external targets.
+
+### Fixed
+- Fixed FFmpeg argument ordering and duplication issues in `BuildArgs`.
+- Corrected the local browser preview output path to `live/preview` to avoid conflicts with camera ingest.
+
 ## [0.1.19] - 2026-05-18
 
 ### Fixed
@@ -46,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.20]: https://github.com/squoyster/GoLivePilot/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/squoyster/GoLivePilot/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/squoyster/GoLivePilot/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/squoyster/GoLivePilot/compare/v0.1.16...v0.1.17
