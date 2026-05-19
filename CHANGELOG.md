@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26] - 2026-05-18
+
+### Added
+- Implemented "Go Live" source switching between slate and camera modes.
+- Introduced `SourceMode` (slate, camera, none) to track runtime state.
+- Added `ui.camera_source_url` configuration to support local camera ingestion.
+
+### Changed
+- Refactored `Runtime` to manage source transitions and ensure stable stream handovers.
+- Updated `/api/status` to include the current `source_mode`.
+- Wired up `/api/go-live` to switch relays from slate to camera with stream copy.
+
 ## [0.1.25] - 2026-05-18
 
 ### Fixed
@@ -92,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.26]: https://github.com/squoyster/GoLivePilot/compare/v0.1.25...v0.1.26
 [0.1.25]: https://github.com/squoyster/GoLivePilot/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/squoyster/GoLivePilot/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/squoyster/GoLivePilot/compare/v0.1.22...v0.1.23

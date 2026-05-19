@@ -16,6 +16,7 @@ import (
 type Runtime interface {
 	Status() map[string]any
 	StartPreview(ctx context.Context) error
+	StartGoLive(ctx context.Context) error
 	StopAll()
 }
 
@@ -124,8 +125,16 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
-	logger := slog.With("method", "POST", "path", "/api/go-live")
+	logger := slog.With("method", r.Method, "path", r.URL.Path)
 	logger.Info("api call")
+	if err := s.runtime.StartGoLive(r.Context()); err != nil {
+		logger.Error("go-live failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "go-live",
