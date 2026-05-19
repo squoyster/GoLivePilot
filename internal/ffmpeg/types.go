@@ -45,6 +45,8 @@ func BuildArgs(req StartRequest) ([]string, error) {
 
 	// Add the main input file
 	args = append(args, "-i", req.Input)
+
+	// Profiles and other output-side arguments
 	args = append(args, req.OutputArgs...)
 
 	// Fallback encoding if nothing specified in OutputArgs
