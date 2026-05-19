@@ -153,16 +153,19 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		// Resolve output URL
 		targetURL := os.Getenv(t.RTMPSURLEnv)
 		if targetURL == "" {
+			// Support direct URLs if they look like RTMP/S
 			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
 				targetURL = t.RTMPSURLEnv
-			} else {
-				err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
-				tLogger.Error("preview failed for target", "error", err)
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
 			}
+		}
+
+		if targetURL == "" {
+			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
+			tLogger.Error("preview failed for target", "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 
 		tLogger.Info("starting slate relay", "url", targetURL)
@@ -229,16 +232,19 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 		// Resolve output URL
 		targetURL := os.Getenv(t.RTMPSURLEnv)
 		if targetURL == "" {
+			// Support direct URLs if they look like RTMP/S
 			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
 				targetURL = t.RTMPSURLEnv
-			} else {
-				err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
-				tLogger.Error("go-live failed for target", "error", err)
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
 			}
+		}
+
+		if targetURL == "" {
+			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
+			tLogger.Error("go-live failed for target", "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 
 		tLogger.Info("starting camera relay", "url", targetURL)

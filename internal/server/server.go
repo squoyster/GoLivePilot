@@ -296,14 +296,12 @@ async function refresh() {
       case "camera": label = "LIVE"; break;
       case "none": label = "Ended"; break;
     }
-    // Only update label if not in a transient connecting state
-    if (previewStatus.textContent !== "Connecting..." || result.source_mode === "none" || result.source_mode === "initialized") {
-      previewStatus.textContent = label;
-      if (result.source_mode === "camera") {
-        previewStatus.classList.add("live");
-      } else {
-        previewStatus.classList.remove("live");
-      }
+    // Always update label if we have a valid source mode
+    previewStatus.textContent = label;
+    if (result.source_mode === "camera") {
+      previewStatus.classList.add("live");
+    } else {
+      previewStatus.classList.remove("live");
     }
 
     if (result.source_mode === "none" || result.source_mode === "initialized") {
@@ -361,7 +359,7 @@ function initPlayer() {
     // Simple retry for native video
     video.onerror = function() {
       console.log("Native video error, retrying in 2s...");
-      previewStatus.textContent = "Connecting...";
+      // previewStatus.textContent = "Connecting..."; // Don't override the backend status
       previewStatus.classList.remove("live");
       setTimeout(() => {
         video.src = videoSrc + "?t=" + Date.now();
@@ -393,7 +391,7 @@ function initPlayer() {
           case Hls.ErrorTypes.NETWORK_ERROR:
             console.log("fatal network error encountered, try to recover");
             hls.startLoad();
-            previewStatus.textContent = "Connecting...";
+            // previewStatus.textContent = "Connecting..."; // Don't override the backend status
             previewStatus.classList.remove("live");
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
