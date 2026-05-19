@@ -42,6 +42,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /assets/", s.handleAssets)
 	mux.HandleFunc("GET /api/status", s.withAuth(s.handleStatus))
 	mux.HandleFunc("POST /api/preview", s.withAuth(s.handlePreview))
 	mux.HandleFunc("POST /api/go-live", s.withAuth(s.handleGoLive))
@@ -151,6 +152,15 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/assets/")
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, "assets/"+path)
+}
+
 type responseWriter struct {
 	http.ResponseWriter
 	status int
@@ -212,7 +222,9 @@ func parseTemplates() *template.Template {
     pre { background: #050505; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; }
     .video-container { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 8px; overflow: hidden; margin-top: 12px; position: relative; }
     video { width: 100%; height: 100%; object-fit: contain; }
-    .video-overlay { position: absolute; top: 0; left: 0; padding: 8px; background: rgba(0,0,0,0.5); font-size: 12px; }
+    .video-placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000 url('/assets/starting-soon.png') no-repeat center center; background-size: contain; display: none; }
+    .video-overlay { position: absolute; top: 0; left: 0; padding: 4px 8px; background: rgba(0,0,0,0.7); font-size: 14px; font-weight: bold; border-bottom-right-radius: 8px; }
+    .video-overlay.live { color: #ff4d4d; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -225,6 +237,7 @@ func parseTemplates() *template.Template {
     <h2>Preview</h2>
     <div class="video-container">
       <video id="preview-video" controls autoplay muted playsinline></video>
+      <div id="video-placeholder" class="video-placeholder"></div>
       <div class="video-overlay" id="preview-status">Standby</div>
     </div>
   </div>
@@ -274,6 +287,33 @@ async function post(path) {
 async function refresh() {
   const result = await api("/api/status");
   document.getElementById("status").textContent = JSON.stringify(result, null, 2);
+  
+  if (result.source_mode) {
+    let label = "Standby";
+    switch (result.source_mode) {
+      case "slate": label = "Preview (Slate)"; break;
+      case "camera": label = "LIVE"; break;
+      case "none": label = "Ended"; break;
+    }
+    // Only update label if not in a transient connecting state
+    if (previewStatus.textContent !== "Connecting..." || result.source_mode === "none") {
+      previewStatus.textContent = label;
+      if (result.source_mode === "camera") {
+        previewStatus.classList.add("live");
+      } else {
+        previewStatus.classList.remove("live");
+      }
+    }
+
+    if (result.source_mode === "none") {
+      stopPlayer();
+      document.getElementById("video-placeholder").style.display = "block";
+      video.style.display = "none";
+    } else {
+      document.getElementById("video-placeholder").style.display = "none";
+      video.style.display = "block";
+    }
+  }
 }
 
 setInterval(refresh, 2000);
@@ -284,8 +324,7 @@ const videoSrc = {{.PreviewURLJSON}};
 const previewStatus = document.getElementById('preview-status');
 let hls = null;
 
-function reloadPlayer() {
-  console.log("Reloading player...");
+function stopPlayer() {
   if (hls) {
     hls.destroy();
     hls = null;
@@ -293,6 +332,11 @@ function reloadPlayer() {
   video.pause();
   video.removeAttribute('src');
   video.load();
+}
+
+function reloadPlayer() {
+  console.log("Reloading player...");
+  stopPlayer();
   initPlayer();
 }
 
@@ -307,17 +351,17 @@ function initPlayer() {
     video.src = videoSrc;
     video.onloadedmetadata = function() {
       video.play().catch(e => console.warn("Autoplay blocked", e));
-      previewStatus.textContent = "Live Preview (Native)";
     };
     
     video.onplaying = function() {
-      previewStatus.textContent = "Live Preview (Native)";
+      // Status updated by refresh()
     };
 
     // Simple retry for native video
     video.onerror = function() {
       console.log("Native video error, retrying in 2s...");
       previewStatus.textContent = "Connecting...";
+      previewStatus.classList.remove("live");
       setTimeout(() => {
         video.src = videoSrc + "?t=" + Date.now();
       }, 2000);
@@ -338,10 +382,9 @@ function initPlayer() {
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
       video.play().catch(e => console.warn("Autoplay blocked", e));
-      previewStatus.textContent = "Live Preview";
     });
     video.onplaying = function() {
-      previewStatus.textContent = "Live Preview";
+      // Status updated by refresh()
     };
     hls.on(Hls.Events.ERROR, function(event, data) {
       if (data.fatal) {
@@ -350,6 +393,7 @@ function initPlayer() {
             console.log("fatal network error encountered, try to recover");
             hls.startLoad();
             previewStatus.textContent = "Connecting...";
+            previewStatus.classList.remove("live");
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             console.log("fatal media error encountered, try to recover");
