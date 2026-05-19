@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	version = "dev"
+	version = "0.1.37"
 )
 
 func main() {
@@ -32,6 +32,15 @@ func main() {
 }
 
 func run() error {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "GoLivePilot - Live Stream Management via MediaMTX and FFmpeg\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  golivepilot [flags]\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nFor more information on environment variables, use --env-help\n")
+	}
+
 	configPath := flag.String("config", env("GOLIVEPILOT_CONFIG", "/config/golivepilot.yml"), "path to config file")
 	listenOverride := flag.String("listen", "", "override listen address")
 	envHelp := flag.Bool("env-help", false, "show relevant environment variables and exit")
