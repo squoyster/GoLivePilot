@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.41] - 2026-05-19
+
+### Added
+- Created a `mediamtx.Client` to interact with the MediaMTX API and wait for stream readiness.
+
+### Changed
+- Refactored `ProcessSupervisor` to allow restarting failed or exited relays without "already running" errors.
+- Added `lastStatus` to `ProcessSupervisor` to preserve failed relay logs and status history.
+- Improved `Runtime` sequencing: platform relays are now gated by `live/program` readiness.
+- Added explicit readiness check for `live/camera` before transitioning to "Go Live".
+- Reduced stop timeout for faster switching and better responsiveness.
+
 ## [0.1.40] - 2026-05-19
 
 ### Added

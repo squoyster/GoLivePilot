@@ -10,6 +10,7 @@ import (
 
 	"github.com/squoyster/golivepilot/internal/config"
 	"github.com/squoyster/golivepilot/internal/ffmpeg"
+	"github.com/squoyster/golivepilot/internal/mediamtx"
 )
 
 type RelayState struct {
@@ -38,6 +39,7 @@ type Runtime struct {
 	relays     map[string]RelayState
 	supervisor RelaySupervisor
 	sourceMode SourceMode
+	mtxClient  *mediamtx.Client
 }
 
 func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
@@ -47,6 +49,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
 		sourceMode: SourceStandby,
+		mtxClient:  mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL),
 	}
 
 	for _, t := range cfg.Targets {
@@ -79,15 +82,31 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger := slog.With("mode", "preview")
 	logger.Debug("starting preview")
 
+	// 1. Stop platform relays first to avoid races reading from a restarting program source
+	for _, t := range r.cfg.Targets {
+		if t.Enabled {
+			_ = r.supervisor.Stop(ctx, t.ID)
+		}
+	}
+
 	r.sourceMode = SourceSlate
 
-	// 1. Start Program Source Relay (Slate -> live/program)
+	// 2. Start Program Source Relay (Slate -> live/program)
 	if err := r.startProgramSource(ctx, SourceSlate); err != nil {
 		return err
 	}
 
-	// 2. Start Durable Platform Relays (live/program -> Platform)
-	// These only start if they are not already running.
+	// 3. Wait for live/program readiness
+	programPath := "live/program"
+	logger.Info("waiting for program source readiness", "path", programPath)
+	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 10*time.Second); err != nil {
+		logger.Error("program source failed to become ready", "error", err)
+		_ = r.supervisor.Stop(ctx, TargetIDProgram)
+		return err
+	}
+	logger.Info("program source is ready")
+
+	// 4. Start Durable Platform Relays (live/program -> Platform)
 	return r.ensurePlatformRelays(ctx)
 }
 
@@ -96,6 +115,7 @@ func (r *Runtime) startProgramSource(ctx context.Context, mode SourceMode) error
 
 	// Stop existing program source if any
 	if r.supervisor != nil {
+		slog.Info("stopping existing program source relay", "target_id", TargetIDProgram)
 		_ = r.supervisor.Stop(ctx, TargetIDProgram)
 	}
 
@@ -196,7 +216,11 @@ func (r *Runtime) startProgramSource(ctx context.Context, mode SourceMode) error
 	}
 
 	logger.Info("starting program source relay", "input", input, "output", publishURL)
-	return r.supervisor.Start(ctx, req)
+	if err := r.supervisor.Start(ctx, req); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
@@ -217,6 +241,8 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 		if st, exists := status[t.ID]; exists && st.State == "running" {
 			slog.Info("skipping platform relay because already running", "target_id", t.ID)
 			continue
+		} else {
+			slog.Info("starting platform relay", "target_id", t.ID, "last_state", st.State)
 		}
 
 		tLogger := slog.With("target_id", t.ID, "mode", "platform-relay")
@@ -281,15 +307,47 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	logger := slog.With("mode", "go-live")
 	logger.Info("switching to camera (go-live)")
 
+	// 1. Verify camera source is ready if it's a MediaMTX path
+	cameraSource := r.cfg.Program.CameraSourceURL
+	if cameraSource == "" {
+		cameraSource = r.cfg.UI.CameraSourceURL
+	}
+	if strings.Contains(cameraSource, r.cfg.MediaEngine.MediaMTX.InternalRTMPBase) {
+		// It's a local MediaMTX path, try to wait for it
+		parts := strings.Split(cameraSource, "/")
+		if len(parts) > 0 {
+			path := parts[len(parts)-1]
+			// If it's live/camera, parts might be [... "live", "camera"]
+			if strings.Contains(cameraSource, "/live/") {
+				path = "live/" + path
+			}
+
+			logger.Info("waiting for camera source readiness", "path", path)
+			if _, err := r.mtxClient.WaitForPathReady(ctx, path, 5*time.Second); err != nil {
+				return fmt.Errorf("camera source %q not ready: %w", path, err)
+			}
+			logger.Info("camera source is ready")
+		}
+	}
+
 	r.sourceMode = SourceCamera
 
-	// 1. Switch Program Source to Camera (Platform relays remain running)
+	// 2. Switch Program Source to Camera (Platform relays remain running)
 	logger.Info("switching program source to camera")
 	if err := r.startProgramSource(ctx, SourceCamera); err != nil {
 		return err
 	}
 
-	// 2. Ensure platform relays are running (in case some didn't start in preview)
+	// 3. Wait for live/program readiness again after switch
+	// Although we want platform relays to stay running, if we didn't stop them,
+	// ffmpeg copy might handle the source switch, or it might exit.
+	// If it exits, ensurePlatformRelays will restart it.
+	programPath := "live/program"
+	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 10*time.Second); err != nil {
+		logger.Error("program source failed to become ready after switch", "error", err)
+	}
+
+	// 4. Ensure platform relays are running (in case some didn't start in preview or exited during switch)
 	return r.ensurePlatformRelays(ctx)
 }
 
