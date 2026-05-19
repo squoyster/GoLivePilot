@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.27] - 2026-05-18
+
+### Added
+- Added `/assets/` endpoint to serve static files from the `assets` directory.
+- Introduced a placeholder image (`starting-soon.png`) that displays in the video viewer when the stream is stopped/ended.
+
+### Changed
+- Enhanced the video viewer overlay to dynamically reflect the stream status (Preview, LIVE, Ended) based on backend state.
+- Improved overlay styling with better contrast, rounded corners, and a specific "LIVE" visual state (red text).
+- Refactored frontend polling logic to properly handle stream termination by stopping the HLS player and switching to the placeholder image.
+
 ## [0.1.26] - 2026-05-18
 
 ### Added
@@ -104,6 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.27]: https://github.com/squoyster/GoLivePilot/compare/v0.1.26...v0.1.27
 [0.1.26]: https://github.com/squoyster/GoLivePilot/compare/v0.1.25...v0.1.26
 [0.1.25]: https://github.com/squoyster/GoLivePilot/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/squoyster/GoLivePilot/compare/v0.1.23...v0.1.24
