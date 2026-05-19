@@ -92,6 +92,7 @@ ui:
   title: "GoLivePilot"
   subtitle: "Preview → Go Live → Stop"
   preview_hls_url: "http://127.0.0.1:8888/live/preview/index.m3u8"
+  camera_source_url: "rtmp://127.0.0.1:1935/live/camera"
   show_logs: true
   show_config_validation: true
 

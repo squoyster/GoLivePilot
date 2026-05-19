@@ -64,6 +64,7 @@ type UIConfig struct {
 	Title                string `json:"title" yaml:"title"`
 	Subtitle             string `json:"subtitle" yaml:"subtitle"`
 	PreviewHLSURL        string `json:"preview_hls_url" yaml:"preview_hls_url"`
+	CameraSourceURL      string `json:"camera_source_url" yaml:"camera_source_url"`
 	ShowLogs             bool   `json:"show_logs" yaml:"show_logs"`
 	ShowConfigValidation bool   `json:"show_config_validation" yaml:"show_config_validation"`
 }

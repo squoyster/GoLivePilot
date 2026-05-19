@@ -18,11 +18,20 @@ type RelayState struct {
 	LastError string `json:"last_error,omitempty"`
 }
 
+type SourceMode string
+
+const (
+	SourceSlate  SourceMode = "slate"
+	SourceCamera SourceMode = "camera"
+	SourceNone   SourceMode = "none"
+)
+
 type Runtime struct {
 	cfg        *config.Config
 	started    time.Time
 	relays     map[string]RelayState
 	supervisor RelaySupervisor
+	sourceMode SourceMode
 }
 
 func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
@@ -31,6 +40,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		started:    time.Now(),
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
+		sourceMode: SourceNone,
 	}
 
 	for _, t := range cfg.Targets {
@@ -45,8 +55,9 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 
 func (r *Runtime) Status() map[string]any {
 	status := map[string]any{
-		"status":  "online",
-		"started": r.started.Format(time.RFC3339),
+		"status":      "online",
+		"started":     r.started.Format(time.RFC3339),
+		"source_mode": r.sourceMode,
 	}
 
 	if r.supervisor != nil {
@@ -61,6 +72,13 @@ func (r *Runtime) Status() map[string]any {
 func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger := slog.With("mode", "preview")
 	logger.Debug("starting preview")
+
+	r.sourceMode = SourceSlate
+
+	// Stop any existing relays before starting slate preview
+	if r.supervisor != nil {
+		r.supervisor.StopAll(ctx)
+	}
 
 	input := r.cfg.Slate.Path
 	if !r.cfg.Slate.Enabled {
@@ -171,8 +189,85 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	return firstErr
 }
 
+func (r *Runtime) StartGoLive(ctx context.Context) error {
+	logger := slog.With("mode", "go-live")
+	logger.Info("switching to camera (go-live)")
+
+	r.sourceMode = SourceCamera
+
+	cameraURL := r.cfg.UI.CameraSourceURL
+	if cameraURL == "" {
+		err := fmt.Errorf("ui.camera_source_url is not configured")
+		logger.Error("go-live failed", "error", err)
+		return err
+	}
+
+	// Stop existing relays (e.g. slate preview) before switching to camera
+	if r.supervisor != nil {
+		r.supervisor.StopAll(ctx)
+	}
+
+	// For v0.1, we use a simple stream copy from camera source to preview output.
+	inputArgs := []string{"-re", "-i", cameraURL}
+	outputArgs := []string{"-c", "copy"}
+
+	var firstErr error
+
+	for _, t := range r.cfg.Targets {
+		if !t.Enabled {
+			continue
+		}
+
+		// Skip if target doesn't support go-live
+		if t.Lifecycle.SupportsGoLive == false && t.ID != "__preview__" {
+			continue
+		}
+
+		tLogger := slog.With("target_id", t.ID, "mode", "go-live")
+
+		// Resolve output URL
+		targetURL := os.Getenv(t.RTMPSURLEnv)
+		if targetURL == "" {
+			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
+				targetURL = t.RTMPSURLEnv
+			} else {
+				err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
+				tLogger.Error("go-live failed for target", "error", err)
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+		}
+
+		tLogger.Info("starting camera relay", "url", targetURL)
+
+		req := ffmpeg.StartRequest{
+			TargetID:   t.ID,
+			Label:      t.Label,
+			Mode:       "go-live",
+			Binary:     r.cfg.FFmpeg.Binary,
+			LogLevel:   r.cfg.FFmpeg.LogLevel,
+			Input:      cameraURL,
+			Output:     targetURL,
+			InputArgs:  inputArgs,
+			OutputArgs: outputArgs,
+		}
+
+		if err := r.supervisor.Start(ctx, req); err != nil {
+			tLogger.Error("failed to start camera relay", "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+
+	return firstErr
+}
+
 func (r *Runtime) StopAll() {
 	slog.Info("stopping all relays")
+	r.sourceMode = SourceNone
 	if r.supervisor != nil {
 		r.supervisor.StopAll(context.Background())
 	}
