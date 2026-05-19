@@ -40,7 +40,10 @@ type RelayStatus struct {
 func BuildArgs(req StartRequest) ([]string, error) {
 	var args []string
 
+	// Input arguments (excluding any -i flags)
 	args = append(args, req.InputArgs...)
+
+	// Add the main input file
 	args = append(args, "-i", req.Input)
 	args = append(args, req.OutputArgs...)
 

@@ -98,15 +98,16 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	// Slate needs to loop if it's an image or short video
 	inputArgs := []string{}
 	outputArgs := []string{}
-	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1")
-	} else if r.cfg.Slate.Type == "video" {
-		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
-	}
 
 	// Add silent audio if enabled for slate to ensure RTMP stability
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
 		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=%d", r.cfg.Slate.Audio.SampleRate, r.cfg.Slate.Audio.Channels))
+	}
+
+	if r.cfg.Slate.Type == "image" {
+		inputArgs = append(inputArgs, "-re", "-loop", "1")
+	} else if r.cfg.Slate.Type == "video" {
+		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
 	}
 
 	// 1. Start preview to MediaMTX if possible
