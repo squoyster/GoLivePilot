@@ -59,37 +59,11 @@ func (r *Runtime) Status() map[string]any {
 }
 
 func (r *Runtime) StartPreview(ctx context.Context) error {
-	var target *config.TargetConfig
-	for i := range r.cfg.Targets {
-		if r.cfg.Targets[i].Enabled {
-			target = &r.cfg.Targets[i]
-			break
-		}
-	}
-
-	if target == nil {
-		slog.Error("preview failed: no enabled targets")
-		return fmt.Errorf("no enabled targets found")
-	}
-
-	logger := slog.With("target_id", target.ID, "mode", "preview")
+	logger := slog.With("mode", "preview")
 	logger.Debug("starting preview")
-
-	rtmpsURL := os.Getenv(target.RTMPSURLEnv)
-	if rtmpsURL == "" {
-		// If it looks like a URL instead of an env var name, use it directly
-		if strings.HasPrefix(target.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(target.RTMPSURLEnv, "rtmps://") {
-			rtmpsURL = target.RTMPSURLEnv
-		} else {
-			err := fmt.Errorf("RTMPS URL env var %q is empty", target.RTMPSURLEnv)
-			logger.Error("preview failed", "error", err)
-			return err
-		}
-	}
 
 	input := r.cfg.Slate.Path
 	if !r.cfg.Slate.Enabled {
-		// Fallback or error? README says "start FFmpeg slate relay"
 		err := fmt.Errorf("slate is not enabled in config")
 		logger.Error("preview failed", "error", err)
 		return err
@@ -163,7 +137,11 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
 				targetURL = t.RTMPSURLEnv
 			} else {
-				tLogger.Warn("skipping target: RTMPS URL env var is empty", "env", t.RTMPSURLEnv)
+				err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
+				tLogger.Error("preview failed for target", "error", err)
+				if firstErr == nil {
+					firstErr = err
+				}
 				continue
 			}
 		}
