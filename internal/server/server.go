@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -68,10 +69,22 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	previewURL := ""
+	if len(s.cfg.Ingests) > 0 {
+		ing := s.cfg.Ingests[0]
+		if ing.Preview.URL != "" {
+			previewURL = ing.Preview.URL
+		} else if s.cfg.MediaEngine.Type == "mediamtx" {
+			base := strings.TrimSuffix(s.cfg.MediaEngine.MediaMTX.HLSBaseURL, "/")
+			previewURL = fmt.Sprintf("%s/%s/index.m3u8", base, strings.TrimPrefix(ing.Path, "/"))
+		}
+	}
+
 	data := map[string]any{
-		"Title":    firstNonEmpty(s.cfg.UI.Title, s.cfg.App.Name, "GoLivePilot"),
-		"Subtitle": firstNonEmpty(s.cfg.UI.Subtitle, "Preview → Go Live → Stop"),
-		"Version":  s.version,
+		"Title":      firstNonEmpty(s.cfg.UI.Title, s.cfg.App.Name, "GoLivePilot"),
+		"Subtitle":   firstNonEmpty(s.cfg.UI.Subtitle, "Preview → Go Live → Stop"),
+		"Version":    s.version,
+		"PreviewURL": previewURL,
 	}
 
 	w.Header().Set("content-type", "text/html; charset=utf-8")
@@ -181,12 +194,24 @@ func parseTemplates() *template.Template {
     button.primary { background: #2d7ef7; color: white; }
     button.danger { background: #b42318; color: white; }
     pre { background: #050505; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; }
+    .video-container { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 8px; overflow: hidden; margin-top: 12px; position: relative; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    .video-overlay { position: absolute; top: 0; left: 0; padding: 8px; background: rgba(0,0,0,0.5); font-size: 12px; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 <main>
   <h1>{{.Title}}</h1>
   <p class="sub">{{.Subtitle}}</p>
+
+  <div class="card">
+    <h2>Preview</h2>
+    <div class="video-container">
+      <video id="preview-video" controls autoplay muted playsinline></video>
+      <div class="video-overlay" id="preview-status">Standby</div>
+    </div>
+  </div>
 
   <div class="card">
     <h2>Controls</h2>
@@ -234,6 +259,56 @@ async function refresh() {
 
 setInterval(refresh, 2000);
 refresh();
+
+const video = document.getElementById('preview-video');
+const videoSrc = '{{.PreviewURL}}';
+const previewStatus = document.getElementById('preview-status');
+
+function initPlayer() {
+  if (!videoSrc) {
+    previewStatus.textContent = "No preview URL configured";
+    return;
+  }
+
+  if (Hls.isSupported()) {
+    const hls = new Hls({
+      manifestLoadingRetryDelay: 1000,
+      manifestLoadingMaxRetry: Infinity,
+    });
+    hls.loadSource(videoSrc);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+      video.play();
+      previewStatus.textContent = "Live Preview";
+    });
+    hls.on(Hls.Events.ERROR, function(event, data) {
+      if (data.fatal) {
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            console.log("fatal network error encountered, try to recover");
+            hls.startLoad();
+            previewStatus.textContent = "Connecting...";
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            console.log("fatal media error encountered, try to recover");
+            hls.recoverMediaError();
+            break;
+          default:
+            hls.destroy();
+            break;
+        }
+      }
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = videoSrc;
+    video.addEventListener('loadedmetadata', function() {
+      video.play();
+      previewStatus.textContent = "Live Preview";
+    });
+  }
+}
+
+initPlayer();
 </script>
 </body>
 </html>

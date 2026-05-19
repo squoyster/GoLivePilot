@@ -103,6 +103,48 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
 	}
 
+	// 1. Start preview to MediaMTX if possible
+	previewURL := ""
+	for _, ing := range r.cfg.Ingests {
+		if ing.ID == target.IngestID {
+			if ing.InternalSourceURL != "" {
+				previewURL = ing.InternalSourceURL
+			} else if r.cfg.MediaEngine.Type == "mediamtx" {
+				base := strings.TrimSuffix(r.cfg.MediaEngine.MediaMTX.InternalRTMPBase, "/")
+				previewURL = fmt.Sprintf("%s/%s", base, strings.TrimPrefix(ing.Path, "/"))
+			}
+			break
+		}
+	}
+
+	if previewURL != "" {
+		logger.Info("starting preview relay to mediamtx", "url", previewURL)
+		preReq := ffmpeg.StartRequest{
+			TargetID: "__preview__",
+			Label:    "Browser Preview",
+			Mode:     "preview",
+			Binary:   r.cfg.FFmpeg.Binary,
+			LogLevel: r.cfg.FFmpeg.LogLevel,
+			Input:    input,
+			Output:   previewURL,
+			Args:     inputArgs,
+		}
+		// Profiles could be applied here if needed, but for internal preview
+		// we might want a lighter profile or just default.
+		// Let's use the target's profile if available for consistency.
+		for _, p := range r.cfg.Profiles {
+			if p.ID == target.ProfileID {
+				preReq.Args = append(preReq.Args, p.Args...)
+				break
+			}
+		}
+
+		if err := r.supervisor.Start(ctx, preReq); err != nil {
+			logger.Warn("failed to start mediamtx preview relay", "error", err)
+		}
+	}
+
+	// 2. Start preview to external target
 	req := ffmpeg.StartRequest{
 		TargetID: target.ID,
 		Label:    target.Label,
