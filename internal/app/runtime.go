@@ -97,18 +97,22 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// Slate needs to loop if it's an image or short video
 	inputArgs := []string{}
-	outputArgs := []string{"-shortest"}
+	outputArgs := []string{}
+
+	if r.cfg.Slate.Type == "image" {
+		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "25")
+	} else if r.cfg.Slate.Type == "video" {
+		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
+	}
 
 	// Add silent audio if enabled for slate to ensure RTMP stability
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
 		// cl=stereo is used to avoid "1 channels (FR)" issue with AAC encoder
+		// Using -f lavfi -i anullsrc as a separate input.
+		// We use -shortest to stop the silent audio when the video stops,
+		// but since video is looped infinitely, they should both continue.
 		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=stereo", r.cfg.Slate.Audio.SampleRate))
-	}
-
-	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1")
-	} else if r.cfg.Slate.Type == "video" {
-		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
+		outputArgs = append(outputArgs, "-shortest")
 	}
 
 	// 1. Start preview to MediaMTX if possible
