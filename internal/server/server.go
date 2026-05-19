@@ -70,13 +70,15 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	previewURL := ""
-	if len(s.cfg.Ingests) > 0 {
+
+	// Prioritize local preview path if MediaMTX is used
+	if s.cfg.MediaEngine.Type == "mediamtx" {
+		base := strings.TrimSuffix(s.cfg.MediaEngine.MediaMTX.HLSBaseURL, "/")
+		previewURL = fmt.Sprintf("%s/live/preview/index.m3u8", base)
+	} else if len(s.cfg.Ingests) > 0 {
 		ing := s.cfg.Ingests[0]
 		if ing.Preview.URL != "" {
 			previewURL = ing.Preview.URL
-		} else if s.cfg.MediaEngine.Type == "mediamtx" {
-			base := strings.TrimSuffix(s.cfg.MediaEngine.MediaMTX.HLSBaseURL, "/")
-			previewURL = fmt.Sprintf("%s/%s/index.m3u8", base, strings.TrimPrefix(ing.Path, "/"))
 		}
 	}
 
