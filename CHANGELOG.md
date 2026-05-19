@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21] - 2026-05-18
+
+### Fixed
+- Fixed a bug in `StartPreview` where an empty `LOCAL_PREVIEW_RTMP_URL` environment variable would block all preview relays from starting.
+- Improved error handling in `StartPreview` to continue starting other target relays even if one target's configuration is invalid.
+
 ## [0.1.20] - 2026-05-18
 
 ### Changed
@@ -57,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.21]: https://github.com/squoyster/GoLivePilot/compare/v0.1.20...v0.1.21
 [0.1.20]: https://github.com/squoyster/GoLivePilot/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/squoyster/GoLivePilot/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/squoyster/GoLivePilot/compare/v0.1.17...v0.1.18
