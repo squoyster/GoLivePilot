@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.34] - 2026-05-19
+
+### Changed
+- Improved RTMPS target configuration by separating the base URL from the stream key.
+- Refactored `TargetConfig` to include a dedicated `rtmps_key_env` field.
+- Updated Facebook configuration to use the new separated URL and key format for better compatibility with FFmpeg.
+
 ## [0.1.33] - 2026-05-19
 
 ### Fixed

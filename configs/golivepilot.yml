@@ -289,7 +289,7 @@ targets:
   - id: "facebook-main"
     label: "Facebook"
     platform: "facebook"
-    enabled: false
+    enabled: true
 
     # Primary live ingest.
     ingest_id: "camera"
@@ -305,7 +305,10 @@ targets:
     # RTMPS destination URL.
     # Example value:
     #   rtmps://live-api-s.facebook.com:443/rtmp/<key>
-    rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/CHANGE_ME_FB_STREAM_KEY"
+    rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/"
+
+    # Facebook Stream Key (required for RTMPS)
+    rtmps_key_env: "CHANGE_ME_FB_STREAM_KEY"
 
     lifecycle:
       supports_preview: true
