@@ -107,6 +107,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+## [0.1.14] - 2026-05-18
+
+### Changed
+- Improved FFmpeg argument construction by explicitly separating input and output options.
+- Enhanced FFmpeg log capture to use `bufio.Scanner` for reliable line-by-line logging.
+- Refactored `SlateConfig` to include structured `Audio` and `Video` settings.
+
+### Fixed
+- Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
+
+[0.1.14]: https://github.com/squoyster/GoLivePilot/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/squoyster/GoLivePilot/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/squoyster/GoLivePilot/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/squoyster/GoLivePilot/compare/v0.1.10...v0.1.11
