@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,6 +47,8 @@ func run() error {
 		cfg.App.Listen = ":3000"
 	}
 
+	setupLogging(cfg.Logging)
+
 	operatorPSK := env(cfg.Auth.PSKEnv, "")
 	if cfg.Auth.Mode != "" && cfg.Auth.Mode != "none" && operatorPSK == "" {
 		return fmt.Errorf("auth mode %q requires env var %q", cfg.Auth.Mode, cfg.Auth.PSKEnv)
@@ -67,7 +71,7 @@ func run() error {
 	errCh := make(chan error, 1)
 
 	go func() {
-		log.Printf("GoLivePilot %s listening on %s", version, cfg.App.Listen)
+		slog.Info("server starting", "version", version, "listen", cfg.App.Listen)
 		if cfg.TLS.Enabled {
 			errCh <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 			return
@@ -77,7 +81,7 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
-		log.Printf("shutdown requested")
+		slog.Info("shutdown requested")
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -92,9 +96,31 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("http shutdown: %w", err)
 	}
-
-	log.Printf("shutdown complete")
+	slog.Info("shutdown complete")
 	return nil
+}
+
+func setupLogging(cfg config.LoggingConfig) {
+	level := slog.LevelInfo
+	switch strings.ToLower(cfg.Level) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+
+	if strings.ToLower(cfg.Format) == "json" {
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	}
+
+	slog.SetDefault(slog.New(handler))
 }
 
 func env(key, fallback string) string {

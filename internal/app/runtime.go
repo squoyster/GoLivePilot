@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -57,6 +58,7 @@ func (r *Runtime) Status() map[string]any {
 }
 
 func (r *Runtime) StartPreview(ctx context.Context) error {
+	slog.Debug("starting preview")
 	var target *config.TargetConfig
 	for i := range r.cfg.Targets {
 		if r.cfg.Targets[i].Enabled {
@@ -77,6 +79,7 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	input := r.cfg.Slate.Path
 	if !r.cfg.Slate.Enabled {
 		// Fallback or error? README says "start FFmpeg slate relay"
+		slog.Error("slate not enabled")
 		return fmt.Errorf("slate is not enabled in config")
 	}
 
@@ -98,10 +101,12 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		}
 	}
 
+	slog.Info("triggering supervisor start", "target_id", target.ID, "mode", "preview")
 	return r.supervisor.Start(ctx, req)
 }
 
 func (r *Runtime) StopAll() {
+	slog.Info("stopping all relays")
 	if r.supervisor != nil {
 		r.supervisor.StopAll(context.Background())
 	}

@@ -2,6 +2,7 @@ package config
 
 type Config struct {
 	App         AppConfig         `json:"app" yaml:"app"`
+	Logging     LoggingConfig     `json:"logging" yaml:"logging"`
 	Auth        AuthConfig        `json:"auth" yaml:"auth"`
 	TLS         TLSConfig         `json:"tls" yaml:"tls"`
 	MediaEngine MediaEngineConfig `json:"media_engine" yaml:"media_engine"`
@@ -21,6 +22,11 @@ type AppConfig struct {
 	PublicBaseURL string `json:"public_base_url" yaml:"public_base_url"`
 	DataDir       string `json:"data_dir" yaml:"data_dir"`
 	UIMode        string `json:"ui_mode" yaml:"ui_mode"`
+}
+
+type LoggingConfig struct {
+	Level  string `json:"level" yaml:"level"`
+	Format string `json:"format" yaml:"format"` // "text" or "json"
 }
 
 type AuthConfig struct {

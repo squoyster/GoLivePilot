@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -58,6 +58,7 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		auth := r.Header.Get("Authorization")
 		expected := "Bearer " + s.operatorPSK
 		if s.operatorPSK == "" || auth != expected {
+			slog.Warn("unauthorized request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -84,7 +85,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	slog.Info("api call", "method", "POST", "path", "/api/preview")
 	if err := s.runtime.StartPreview(r.Context()); err != nil {
+		slog.Error("preview failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"ok":    false,
 			"error": err.Error(),
@@ -98,6 +101,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
+	slog.Info("api call", "method", "POST", "path", "/api/go-live")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "go-live",
@@ -105,6 +109,7 @@ func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	slog.Info("api call", "method", "POST", "path", "/api/stop")
 	s.runtime.StopAll()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
@@ -112,11 +117,28 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 func requestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+		rw := &responseWriter{w, http.StatusOK}
+		next.ServeHTTP(rw, r)
+		slog.Info("request completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.status,
+			"duration", time.Since(start),
+			"remote", r.RemoteAddr,
+		)
 	})
 }
 
