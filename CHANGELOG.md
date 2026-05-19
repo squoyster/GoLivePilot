@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.44] - 2026-05-19
+
+### Added
+- Introduced the `ProgramSwitcher` abstraction to isolate upstream source switching logic.
+- Implemented `FFmpegProgramSwitcher` which uses the `Switch` method on the relay supervisor for seamless-ish source transitions.
+
+### Changed
+- Refactored `Runtime` to use the new `ProgramSwitcher` for all program source transitions (Slate, Camera, Ended).
+- Ensured that platform relays are truly idempotent and persistent; they are started once during Preview and remain running throughout the broadcast.
+- Improved the separation of concerns by removing direct FFmpeg command building from the `Runtime` core.
+
 ## [0.1.43] - 2026-05-19
 
 ### Added
