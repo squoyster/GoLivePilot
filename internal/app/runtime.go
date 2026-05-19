@@ -101,7 +101,8 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	// Add silent audio if enabled for slate to ensure RTMP stability
 	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
-		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=%d", r.cfg.Slate.Audio.SampleRate, r.cfg.Slate.Audio.Channels))
+		// cl=stereo is used to avoid "1 channels (FR)" issue with AAC encoder
+		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=r=%d:cl=stereo", r.cfg.Slate.Audio.SampleRate))
 	}
 
 	if r.cfg.Slate.Type == "image" {

@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+## [0.1.16] - 2026-05-18
+
+### Fixed
+- Fixed FFmpeg AAC encoder failure during preview by forcing the silent audio channel layout to `stereo` (cl=stereo), avoiding unsupported "1 channels (FR)" layouts.
+
 ## [0.1.15] - 2026-05-18
 
 ### Fixed
@@ -123,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.16]: https://github.com/squoyster/GoLivePilot/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/squoyster/GoLivePilot/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/squoyster/GoLivePilot/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/squoyster/GoLivePilot/compare/v0.1.12...v0.1.13
