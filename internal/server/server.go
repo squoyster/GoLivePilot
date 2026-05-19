@@ -262,7 +262,7 @@ func parseTemplates() *template.Template {
 
   <div class="card">
     <div class="status-stepper" id="stepper">
-      <div class="step" id="step-initialized">
+      <div class="step" id="step-standby">
         <div class="step-circle">1</div>
         <div class="step-label">Standby</div>
       </div>
@@ -274,7 +274,7 @@ func parseTemplates() *template.Template {
         <div class="step-circle">3</div>
         <div class="step-label">Go Live</div>
       </div>
-      <div class="step" id="step-none">
+      <div class="step" id="step-ended">
         <div class="step-circle">4</div>
         <div class="step-label">Stream Ended</div>
       </div>
@@ -378,8 +378,8 @@ statusManager.subscribe((status) => {
   let headerLabel = "Live Stream Viewer";
   
   switch (status.source_mode) {
-    case "initialized": 
-      label = "Initialized"; 
+    case "standby": 
+      label = "Standby"; 
       headerLabel = "Live Stream Viewer: Standby";
       break;
     case "slate": 
@@ -390,9 +390,13 @@ statusManager.subscribe((status) => {
       label = "LIVE"; 
       headerLabel = "Live Stream Viewer: BROADCASTING";
       break;
-    case "none": 
+    case "ended": 
       label = "Stream Ended"; 
       headerLabel = "Live Stream Viewer: Ended";
+      break;
+    case "stopped":
+      label = "Stopped";
+      headerLabel = "Live Stream Viewer: Stopped";
       break;
   }
 
@@ -409,7 +413,7 @@ statusManager.subscribe((status) => {
   if (viewerHeader) viewerHeader.textContent = headerLabel;
 
   // Update Stepper
-  const steps = ['initialized', 'slate', 'camera', 'none'];
+  const steps = ['standby', 'slate', 'camera', 'ended'];
   steps.forEach(function(mode) {
     var el = document.getElementById('step-' + mode);
     if (!el) return;
@@ -431,16 +435,16 @@ statusManager.subscribe((status) => {
   // Handle Player vs Placeholder
   const placeholder = document.getElementById("video-placeholder");
   if (placeholder && video) {
-    if (status.source_mode === "none" || status.source_mode === "initialized") {
+    if (status.source_mode === "ended" || status.source_mode === "standby" || status.source_mode === "stopped") {
       stopPlayer();
       placeholder.style.display = "block";
       video.style.display = "none";
       
       // Fix: Explicitly manage classes to ensure correct image
-      if (status.source_mode === "none") {
+      if (status.source_mode === "ended") {
         placeholder.classList.add("ended");
         placeholder.classList.remove("starting", "standing");
-      } else if (status.source_mode === "initialized") {
+      } else if (status.source_mode === "standby" || status.source_mode === "stopped") {
         placeholder.classList.add("standing");
         placeholder.classList.remove("starting", "ended");
       } else {

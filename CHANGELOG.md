@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.40] - 2026-05-19
+
+### Added
+- Implemented a durable 'program' feed architecture using MediaMTX to ensure stable RTMPS sessions during source switching.
+- Introduced `ProgramConfig` to define stable publish, source, and HLS URLs for the program feed.
+- Added support for multiple slate images: `standby_image`, `starting_image`, and `ended_image`.
+
+### Changed
+- Refactored `Runtime` to decouple platform relays from program source switching.
+- Platform relays now use a stable `live/program` source and remain running during the transition from Slate to Camera.
+- Updated MediaMTX configuration with `overridePublisher: true` for `live/program` and `live/preview` paths.
+- Renamed `SourceMode` constants for better clarity (`SourceStandby`, `SourceSlate`, `SourceCamera`, `SourceEnded`, `SourceStopped`).
+- Updated frontend UI to handle new state constants and consistently reflect the "program" feed status.
+
 ## [0.1.39] - 2026-05-19
 
 ### Changed
