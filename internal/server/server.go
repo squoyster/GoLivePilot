@@ -319,6 +319,11 @@ async function post(path) {
   }
 }
 
+const video = document.getElementById('preview-video');
+const videoSrc = {{.PreviewURLJSON}};
+const previewStatus = document.getElementById('preview-status');
+let hls = null;
+
 // Status Management
 class StatusManager {
   constructor() {
@@ -375,14 +380,17 @@ statusManager.subscribe((status) => {
       break;
   }
 
-  previewStatus.textContent = label;
-  document.getElementById("viewer-header").textContent = headerLabel;
-
-  if (status.source_mode === "camera") {
-    previewStatus.classList.add("live");
-  } else {
-    previewStatus.classList.remove("live");
+  if (previewStatus) {
+    previewStatus.textContent = label;
+    if (status.source_mode === "camera") {
+      previewStatus.classList.add("live");
+    } else {
+      previewStatus.classList.remove("live");
+    }
   }
+
+  const viewerHeader = document.getElementById("viewer-header");
+  if (viewerHeader) viewerHeader.textContent = headerLabel;
 
   // Update Stepper
   const steps = ['initialized', 'slate', 'camera', 'none'];
@@ -406,22 +414,24 @@ statusManager.subscribe((status) => {
 
   // Handle Player vs Placeholder
   const placeholder = document.getElementById("video-placeholder");
-  if (status.source_mode === "none" || status.source_mode === "initialized") {
-    stopPlayer();
-    placeholder.style.display = "block";
-    video.style.display = "none";
-    
-    // Fix: Explicitly manage classes to ensure correct image
-    if (status.source_mode === "none") {
-      placeholder.classList.add("ended");
-      placeholder.classList.remove("starting");
+  if (placeholder && video) {
+    if (status.source_mode === "none" || status.source_mode === "initialized") {
+      stopPlayer();
+      placeholder.style.display = "block";
+      video.style.display = "none";
+      
+      // Fix: Explicitly manage classes to ensure correct image
+      if (status.source_mode === "none") {
+        placeholder.classList.add("ended");
+        placeholder.classList.remove("starting");
+      } else {
+        placeholder.classList.add("starting");
+        placeholder.classList.remove("ended");
+      }
     } else {
-      placeholder.classList.add("starting");
-      placeholder.classList.remove("ended");
+      placeholder.style.display = "none";
+      video.style.display = "block";
     }
-  } else {
-    placeholder.style.display = "none";
-    video.style.display = "block";
   }
 });
 
@@ -433,19 +443,16 @@ async function refresh() {
 setInterval(refresh, 2000);
 refresh();
 
-const video = document.getElementById('preview-video');
-const videoSrc = {{.PreviewURLJSON}};
-const previewStatus = document.getElementById('preview-status');
-let hls = null;
-
 function stopPlayer() {
   if (hls) {
     hls.destroy();
     hls = null;
   }
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
 }
 
 function reloadPlayer() {
@@ -455,8 +462,8 @@ function reloadPlayer() {
 }
 
 function initPlayer() {
-  if (!videoSrc) {
-    previewStatus.textContent = "No preview HLS URL configured";
+  if (!video || !videoSrc) {
+    if (previewStatus) previewStatus.textContent = "No preview HLS URL configured";
     return;
   }
 
@@ -475,7 +482,7 @@ function initPlayer() {
     video.onerror = function() {
       console.log("Native video error, retrying in 2s...");
       // previewStatus.textContent = "Connecting..."; // Don't override the backend status
-      previewStatus.classList.remove("live");
+      if (previewStatus) previewStatus.classList.remove("live");
       setTimeout(() => {
         video.src = videoSrc + "?t=" + Date.now();
       }, 2000);
@@ -507,7 +514,7 @@ function initPlayer() {
             console.log("fatal network error encountered, try to recover");
             hls.startLoad();
             // previewStatus.textContent = "Connecting..."; // Don't override the backend status
-            previewStatus.classList.remove("live");
+            if (previewStatus) previewStatus.classList.remove("live");
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             console.log("fatal media error encountered, try to recover");
@@ -515,7 +522,7 @@ function initPlayer() {
             break;
           default:
             console.error("Unrecoverable HLS error", data);
-            previewStatus.textContent = "Error: " + data.details;
+            if (previewStatus) previewStatus.textContent = "Error: " + data.details;
             // Retry entire player after a delay
             setTimeout(reloadPlayer, 5000);
             break;
@@ -523,7 +530,7 @@ function initPlayer() {
       }
     });
   } else {
-    previewStatus.textContent = "HLS not supported in this browser";
+    if (previewStatus) previewStatus.textContent = "HLS not supported in this browser";
   }
 }
 
