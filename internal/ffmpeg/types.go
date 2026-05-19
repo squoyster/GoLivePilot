@@ -42,6 +42,9 @@ func BuildArgs(req StartRequest) ([]string, error) {
 	// Hide banner for cleaner logs
 	args = append(args, "-hide_banner")
 
+	// Set loglevel early
+	args = append(args, "-loglevel", req.LogLevel)
+
 	// Input arguments (can include multiple -i flags)
 	args = append(args, req.InputArgs...)
 
@@ -60,9 +63,6 @@ func BuildArgs(req StartRequest) ([]string, error) {
 
 	// Profiles and other output-side arguments
 	args = append(args, req.OutputArgs...)
-
-	// Set loglevel
-	args = append(args, "-loglevel", req.LogLevel)
 
 	// Always output as FLV to the RTMPS URL
 	args = append(args, "-f", "flv", req.Output)
