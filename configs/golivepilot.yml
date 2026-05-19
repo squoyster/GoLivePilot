@@ -287,7 +287,7 @@ targets:
   - id: "facebook-main"
     label: "Facebook"
     platform: "facebook"
-    enabled: true
+    enabled: false
 
     # Primary live ingest.
     ingest_id: "camera"
@@ -338,7 +338,7 @@ targets:
   - id: "youtube-main"
     label: "YouTube"
     platform: "youtube"
-    enabled: true
+    enabled: false
 
     ingest_id: "camera"
     preview_source: "slate"
