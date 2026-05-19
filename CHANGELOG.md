@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.33] - 2026-05-19
+
+### Fixed
+- Fixed an issue where the video stream was not correctly picked up when transitioning to "Go Live".
+- Switched "Go Live" relay to use stable transcoding instead of copy-only, ensuring better compatibility with HLS/RTMPS targets.
+- Improved frontend player reliability by adding a delay before reloading and preventing error recovery from overriding visual status.
+
 ## [0.1.32] - 2026-05-19
 
 ### Fixed
