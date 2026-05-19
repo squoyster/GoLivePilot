@@ -21,10 +21,15 @@ type RelayState struct {
 type SourceMode string
 
 const (
-	SourceInit   SourceMode = "initialized"
-	SourceSlate  SourceMode = "slate"
-	SourceCamera SourceMode = "camera"
-	SourceNone   SourceMode = "none"
+	SourceStandby SourceMode = "standby"
+	SourceSlate   SourceMode = "slate"
+	SourceCamera  SourceMode = "camera"
+	SourceEnded   SourceMode = "ended"
+	SourceStopped SourceMode = "stopped"
+)
+
+const (
+	TargetIDProgram = "__program_source__"
 )
 
 type Runtime struct {
@@ -41,7 +46,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		started:    time.Now(),
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
-		sourceMode: SourceInit,
+		sourceMode: SourceStandby,
 	}
 
 	for _, t := range cfg.Targets {
@@ -76,173 +81,52 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	r.sourceMode = SourceSlate
 
-	// Stop any existing relays before starting slate preview
-	if r.supervisor != nil {
-		r.supervisor.StopAll(ctx)
-	}
-
-	input := r.cfg.Slate.Path
-	if !r.cfg.Slate.Enabled {
-		err := fmt.Errorf("slate is not enabled in config")
-		logger.Error("preview failed", "error", err)
+	// 1. Start Program Source Relay (Slate -> live/program)
+	if err := r.startProgramSource(ctx, SourceSlate); err != nil {
 		return err
 	}
 
-	// Slate needs to loop if it's an image or short video
-	inputArgs := []string{}
-	outputArgs := []string{}
-
-	// Finalize Input 0 (Video Slate)
-	// We use the same parameters for both local preview and external target slate relays
-	// to ensure consistency and because they have been proven stable.
-
-	// Input 0: Image/Video Slate
-	if r.cfg.Slate.Type == "image" {
-		inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
-	} else if r.cfg.Slate.Type == "video" {
-		inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
-	}
-	inputArgs = append(inputArgs, "-i", input)
-
-	// Input 1: Silent Audio
-	if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
-		inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
-		outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
-	} else {
-		outputArgs = append(outputArgs, "-map", "0:v:0")
-	}
-
-	// Stable encoding parameters for slate mode
-	outputArgs = append(outputArgs,
-		"-c:v", "libx264",
-		"-preset", "veryfast",
-		"-tune", "zerolatency",
-		"-pix_fmt", "yuv420p",
-		"-r", "30",
-		"-g", "60",
-		"-b:v", "2500k",
-		"-maxrate", "2500k",
-		"-bufsize", "5000k",
-		"-c:a", "aac",
-		"-b:a", "128k",
-		"-ar", "48000",
-		"-ac", "2",
-		"-flvflags", "no_duration_filesize",
-		"-f", "flv",
-	)
-
-	// Note: We deliberately do NOT append profile args here for slate mode
-	// to avoid duplicate/conflicting codec and format options.
-
-	// 1. Start relays for ALL enabled targets
-	// This includes our special "__preview__" target if it's in the config.
-
-	var firstErr error
-
-	for _, t := range r.cfg.Targets {
-		if !t.Enabled {
-			continue
-		}
-
-		// Skip if target doesn't support preview
-		if t.Lifecycle.SupportsPreview == false && t.ID != "__preview__" {
-			continue
-		}
-
-		tLogger := slog.With("target_id", t.ID, "mode", "preview")
-
-		// Resolve output URL
-		targetURL := os.Getenv(t.RTMPSURLEnv)
-		if targetURL == "" {
-			// Support direct URLs if they look like RTMP/S
-			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
-				targetURL = t.RTMPSURLEnv
-			}
-		}
-
-		if targetURL != "" && t.RTMPSKeyEnv != "" {
-			key := os.Getenv(t.RTMPSKeyEnv)
-			if key == "" {
-				key = t.RTMPSKeyEnv
-			}
-			if key != "" {
-				targetURL = strings.TrimSuffix(targetURL, "/") + "/" + key
-			}
-		}
-
-		if targetURL == "" {
-			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
-			tLogger.Error("preview failed for target", "error", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-
-		tLogger.Info("starting slate relay", "url", targetURL)
-
-		req := ffmpeg.StartRequest{
-			TargetID:   t.ID,
-			Label:      t.Label,
-			Mode:       "preview",
-			Binary:     r.cfg.FFmpeg.Binary,
-			LogLevel:   r.cfg.FFmpeg.LogLevel,
-			Input:      input,
-			Output:     targetURL,
-			InputArgs:  inputArgs,
-			OutputArgs: outputArgs,
-		}
-
-		if err := r.supervisor.Start(ctx, req); err != nil {
-			tLogger.Error("failed to start slate relay", "error", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-
-	return firstErr
+	// 2. Start Durable Platform Relays (live/program -> Platform)
+	// These only start if they are not already running.
+	return r.ensurePlatformRelays(ctx)
 }
 
-func (r *Runtime) StartGoLive(ctx context.Context) error {
-	logger := slog.With("mode", "go-live")
-	logger.Info("switching to camera (go-live)")
+func (r *Runtime) startProgramSource(ctx context.Context, mode SourceMode) error {
+	logger := slog.With("target_id", TargetIDProgram, "mode", mode)
 
-	r.sourceMode = SourceCamera
-
-	cameraURL := r.cfg.UI.CameraSourceURL
-	if cameraURL == "" {
-		err := fmt.Errorf("ui.camera_source_url is not configured")
-		logger.Error("go-live failed", "error", err)
-		return err
-	}
-
-	// Stop existing relays (e.g. slate preview) before switching to camera
+	// Stop existing program source if any
 	if r.supervisor != nil {
-		r.supervisor.StopAll(ctx)
+		_ = r.supervisor.Stop(ctx, TargetIDProgram)
 	}
 
-	inputArgs := []string{"-re", "-i", cameraURL}
-	outputArgs := []string{}
+	var input string
+	var inputArgs []string
+	var outputArgs []string
 
-	// Find the profile
-	var profile *config.ProfileConfig
-	for _, p := range r.cfg.Profiles {
-		// Use the first target's profile if possible, or default to x264-720p
-		profileID := "x264-720p"
-		if len(r.cfg.Targets) > 0 && r.cfg.Targets[0].ProfileID != "" {
-			profileID = r.cfg.Targets[0].ProfileID
+	if mode == SourceSlate {
+		input = r.cfg.Slate.Path
+		if r.cfg.Slate.StartingImage != "" {
+			input = r.cfg.Slate.StartingImage
 		}
-		if p.ID == profileID {
-			profile = &p
-			break
+		if !r.cfg.Slate.Enabled {
+			return fmt.Errorf("slate is not enabled in config")
 		}
-	}
 
-	if profile != nil {
-		outputArgs = append(outputArgs, profile.Args...)
-	} else {
-		// Fallback stable parameters
+		if r.cfg.Slate.Type == "image" {
+			inputArgs = append(inputArgs, "-re", "-loop", "1", "-framerate", "30")
+		} else if r.cfg.Slate.Type == "video" {
+			inputArgs = append(inputArgs, "-re", "-stream_loop", "-1")
+		}
+		inputArgs = append(inputArgs, "-i", input)
+
+		if r.cfg.Slate.Audio.Enabled && r.cfg.Slate.Audio.Type == "silent" {
+			inputArgs = append(inputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", r.cfg.Slate.Audio.SampleRate))
+			outputArgs = append(outputArgs, "-map", "0:v:0", "-map", "1:a:0")
+		} else {
+			outputArgs = append(outputArgs, "-map", "0:v:0")
+		}
+
+		// Use normalized transcode parameters for program output
 		outputArgs = append(outputArgs,
 			"-c:v", "libx264",
 			"-preset", "veryfast",
@@ -260,26 +144,86 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 			"-flvflags", "no_duration_filesize",
 			"-f", "flv",
 		)
+	} else if mode == SourceCamera {
+		input = r.cfg.Program.CameraSourceURL
+		if input == "" {
+			input = r.cfg.UI.CameraSourceURL
+		}
+		if input == "" {
+			return fmt.Errorf("camera source URL is not configured")
+		}
+
+		inputArgs = append(inputArgs, "-re", "-i", input)
+
+		// Transcode camera to program for stability
+		outputArgs = append(outputArgs,
+			"-fflags", "+genpts",
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-r", "30",
+			"-g", "60",
+			"-b:v", "2500k",
+			"-maxrate", "2500k",
+			"-bufsize", "5000k",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-ar", "48000",
+			"-ac", "2",
+			"-avoid_negative_ts", "make_zero",
+			"-flvflags", "no_duration_filesize",
+			"-f", "flv",
+		)
 	}
 
+	publishURL := r.cfg.Program.PublishURL
+	if publishURL == "" {
+		// Fallback to media engine base if not set
+		publishURL = r.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/program"
+	}
+
+	req := ffmpeg.StartRequest{
+		TargetID:   TargetIDProgram,
+		Label:      "Program Source",
+		Mode:       string(mode),
+		Binary:     r.cfg.FFmpeg.Binary,
+		LogLevel:   r.cfg.FFmpeg.LogLevel,
+		Input:      input,
+		Output:     publishURL,
+		InputArgs:  inputArgs,
+		OutputArgs: outputArgs,
+	}
+
+	logger.Info("starting program source relay", "input", input, "output", publishURL)
+	return r.supervisor.Start(ctx, req)
+}
+
+func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 	var firstErr error
+
+	programSource := r.cfg.Program.SourceURL
+	if programSource == "" {
+		programSource = r.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/program"
+	}
 
 	for _, t := range r.cfg.Targets {
 		if !t.Enabled {
 			continue
 		}
 
-		// Skip if target doesn't support go-live
-		if t.Lifecycle.SupportsGoLive == false && t.ID != "__preview__" {
+		// Check if already running
+		status := r.supervisor.Status()
+		if st, exists := status[t.ID]; exists && st.State == "running" {
+			slog.Info("skipping platform relay because already running", "target_id", t.ID)
 			continue
 		}
 
-		tLogger := slog.With("target_id", t.ID, "mode", "go-live")
+		tLogger := slog.With("target_id", t.ID, "mode", "platform-relay")
 
 		// Resolve output URL
 		targetURL := os.Getenv(t.RTMPSURLEnv)
 		if targetURL == "" {
-			// Support direct URLs if they look like RTMP/S
 			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
 				targetURL = t.RTMPSURLEnv
 			}
@@ -297,29 +241,33 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 
 		if targetURL == "" {
 			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
-			tLogger.Error("go-live failed for target", "error", err)
+			tLogger.Error("failed to resolve target URL", "error", err)
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
 
-		tLogger.Info("starting camera relay", "url", targetURL)
-
+		// Platform relay is a simple copy from program to target
 		req := ffmpeg.StartRequest{
-			TargetID:   t.ID,
-			Label:      t.Label,
-			Mode:       "go-live",
-			Binary:     r.cfg.FFmpeg.Binary,
-			LogLevel:   r.cfg.FFmpeg.LogLevel,
-			Input:      cameraURL,
-			Output:     targetURL,
-			InputArgs:  inputArgs,
-			OutputArgs: outputArgs,
+			TargetID:  t.ID,
+			Label:     t.Label,
+			Mode:      "relay",
+			Binary:    r.cfg.FFmpeg.Binary,
+			LogLevel:  r.cfg.FFmpeg.LogLevel,
+			Input:     programSource,
+			Output:    targetURL,
+			InputArgs: []string{"-re", "-i", programSource},
+			OutputArgs: []string{
+				"-c", "copy",
+				"-flvflags", "no_duration_filesize",
+				"-f", "flv",
+			},
 		}
 
+		tLogger.Info("starting platform relay", "url", targetURL)
 		if err := r.supervisor.Start(ctx, req); err != nil {
-			tLogger.Error("failed to start camera relay", "error", err)
+			tLogger.Error("failed to start platform relay", "error", err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -329,9 +277,25 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	return firstErr
 }
 
+func (r *Runtime) StartGoLive(ctx context.Context) error {
+	logger := slog.With("mode", "go-live")
+	logger.Info("switching to camera (go-live)")
+
+	r.sourceMode = SourceCamera
+
+	// 1. Switch Program Source to Camera (Platform relays remain running)
+	logger.Info("switching program source to camera")
+	if err := r.startProgramSource(ctx, SourceCamera); err != nil {
+		return err
+	}
+
+	// 2. Ensure platform relays are running (in case some didn't start in preview)
+	return r.ensurePlatformRelays(ctx)
+}
+
 func (r *Runtime) StopAll() {
 	slog.Info("stopping all relays")
-	r.sourceMode = SourceNone
+	r.sourceMode = SourceStopped
 	if r.supervisor != nil {
 		r.supervisor.StopAll(context.Background())
 	}

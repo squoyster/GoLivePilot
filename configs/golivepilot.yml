@@ -85,10 +85,16 @@ media_engine:
 ui:
   title: "GoLivePilot"
   subtitle: "Preview → Go Live → Stop"
-  preview_hls_url: "http://golivepilot-mediamtx.local:8888/live/preview/index.m3u8"
+  preview_hls_url: "http://golivepilot-mediamtx.local:8888/live/program/index.m3u8"
   camera_source_url: "rtmp://golivepilot-mediamtx.local:1935/live/camera"
   show_logs: true
   show_config_validation: true
+
+program:
+  publish_url: "rtmp://golivepilot-mediamtx.local:1935/live/program"
+  source_url: "rtmp://golivepilot-mediamtx.local:1935/live/program"
+  hls_url: "http://golivepilot-mediamtx.local:8888/live/program/index.m3u8"
+  camera_source_url: "rtmp://golivepilot-mediamtx.local:1935/live/camera"
 
   # Keep mobile UX simple.
   mobile:
@@ -164,6 +170,10 @@ slate:
   # Mount this file into the container.
   type: "image" # image | video
   path: "assets/starting-soon.png"
+
+  standby_image: "assets/standing-by.png"
+  starting_image: "assets/starting-soon.png"
+  ended_image: "assets/stream-ended.png"
 
   # Text may be used later to auto-generate the slate.
   text: "Stream is starting soon"

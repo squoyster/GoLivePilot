@@ -194,8 +194,21 @@ pathDefaults:
 
 paths:
   # Main browser/mobile camera path.
+  # Do not allow accidental overwrite.
   live/camera:
     source: publisher
+    overridePublisher: false
+
+  # Active program output; this is what targets consume.
+  # Allow intentional replacement when switching from slate to camera.
+  live/program:
+    source: publisher
+    overridePublisher: true
+
+  # Optional mirror path.
+  live/preview:
+    source: publisher
+    overridePublisher: true
 
   # Optional iPhone/Larix/OBS-style path for compatibility.
   live/iphone:

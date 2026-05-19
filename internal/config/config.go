@@ -13,6 +13,7 @@ type Config struct {
 	TLS         TLSConfig         `json:"tls" yaml:"tls"`
 	MediaEngine MediaEngineConfig `json:"media_engine" yaml:"media_engine"`
 	UI          UIConfig          `json:"ui" yaml:"ui"`
+	Program     ProgramConfig     `json:"program" yaml:"program"`
 	Ingests     []IngestConfig    `json:"ingests" yaml:"ingests"`
 	Slate       SlateConfig       `json:"slate" yaml:"slate"`
 	FFmpeg      FFmpegConfig      `json:"ffmpeg" yaml:"ffmpeg"`
@@ -75,6 +76,13 @@ type UIConfig struct {
 	ShowConfigValidation bool   `json:"show_config_validation" yaml:"show_config_validation"`
 }
 
+type ProgramConfig struct {
+	PublishURL      string `json:"publish_url" yaml:"publish_url"`
+	SourceURL       string `json:"source_url" yaml:"source_url"`
+	HLSURL          string `json:"hls_url" yaml:"hls_url"`
+	CameraSourceURL string `json:"camera_source_url" yaml:"camera_source_url"`
+}
+
 type IngestConfig struct {
 	ID                string        `json:"id" yaml:"id"`
 	Label             string        `json:"label" yaml:"label"`
@@ -94,12 +102,15 @@ type PreviewConfig struct {
 }
 
 type SlateConfig struct {
-	Enabled bool             `json:"enabled" yaml:"enabled"`
-	Type    string           `json:"type" yaml:"type"`
-	Path    string           `json:"path" yaml:"path"`
-	Text    string           `json:"text" yaml:"text"`
-	Audio   SlateAudioConfig `json:"audio" yaml:"audio"`
-	Video   SlateVideoConfig `json:"video" yaml:"video"`
+	Enabled       bool             `json:"enabled" yaml:"enabled"`
+	Type          string           `json:"type" yaml:"type"`
+	Path          string           `json:"path" yaml:"path"`
+	StandbyImage  string           `json:"standby_image" yaml:"standby_image"`
+	StartingImage string           `json:"starting_image" yaml:"starting_image"`
+	EndedImage    string           `json:"ended_image" yaml:"ended_image"`
+	Text          string           `json:"text" yaml:"text"`
+	Audio         SlateAudioConfig `json:"audio" yaml:"audio"`
+	Video         SlateVideoConfig `json:"video" yaml:"video"`
 }
 
 type SlateAudioConfig struct {
