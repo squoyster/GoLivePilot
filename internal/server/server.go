@@ -222,7 +222,9 @@ func parseTemplates() *template.Template {
     pre { background: #050505; color: #ddd; padding: 12px; border-radius: 8px; overflow: auto; }
     .video-container { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 8px; overflow: hidden; margin-top: 12px; position: relative; }
     video { width: 100%; height: 100%; object-fit: contain; }
-    .video-placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000 url('/assets/starting-soon.png') no-repeat center center; background-size: contain; display: none; }
+    .video-placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000 no-repeat center center; background-size: contain; display: none; }
+    .video-placeholder.starting { background-image: url('/assets/starting-soon.png'); }
+    .video-placeholder.ended { background-image: url('/assets/stream-ended.png'); }
     .video-overlay { position: absolute; top: 0; left: 0; padding: 4px 8px; background: rgba(0,0,0,0.7); font-size: 14px; font-weight: bold; border-bottom-right-radius: 8px; }
     .video-overlay.live { color: #ff4d4d; }
   </style>
@@ -306,7 +308,15 @@ async function refresh() {
 
     if (result.source_mode === "none" || result.source_mode === "initialized") {
       stopPlayer();
-      document.getElementById("video-placeholder").style.display = "block";
+      const placeholder = document.getElementById("video-placeholder");
+      placeholder.style.display = "block";
+      if (result.source_mode === "none") {
+        placeholder.classList.add("ended");
+        placeholder.classList.remove("starting");
+      } else {
+        placeholder.classList.add("starting");
+        placeholder.classList.remove("ended");
+      }
       video.style.display = "none";
     } else {
       document.getElementById("video-placeholder").style.display = "none";
