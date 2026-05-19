@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.42] - 2026-05-19
+
+### Added
+- Implemented comprehensive unit tests for all core packages: `config`, `ffmpeg`, `mediamtx`, `app`, and `server`.
+- Achieved high test coverage for critical components like `ProcessSupervisor`, `Config` validation, and MediaMTX client.
+- Added mock-based testing for `Runtime` and `Server` to verify business logic and API endpoints.
+
 ## [0.1.41] - 2026-05-19
 
 ### Added
