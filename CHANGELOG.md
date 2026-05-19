@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Merged upstream changes from main repository. [c7cbd3e](https://github.com/squoyster/GoLivePilot/commit/c7cbd3ec479c05f2969f90968c7813248cde6303)
 
+## [0.1.15] - 2026-05-18
+
+### Fixed
+- Fixed FFmpeg "Option loop not found" and "Error opening input file" errors by correcting the order of input arguments when silent audio (`anullsrc`) is used.
+- Corrected `BuildArgs` logic to ensure global/input flags precede the primary input file correctly.
+
 ## [0.1.14] - 2026-05-18
 
 ### Changed
@@ -117,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed FFmpeg "Broken pipe" errors during preview by adding a silent audio stream when using slates.
 
+[0.1.15]: https://github.com/squoyster/GoLivePilot/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/squoyster/GoLivePilot/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/squoyster/GoLivePilot/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/squoyster/GoLivePilot/compare/v0.1.11...v0.1.12
