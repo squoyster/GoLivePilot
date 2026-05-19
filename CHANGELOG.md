@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.28] - 2026-05-18
+
+### Added
+- Introduced `initialized` state in `SourceMode` to track the initial state of the application before any stream starts.
+
+### Changed
+- Renamed the "Preview" section in the UI to "Live Stream Viewer" for better clarity.
+- Updated the status overlay to show "Initialized" upon startup.
+- Improved the status polling logic to correctly transition between "Initialized", "Preview", "LIVE", and "Ended" without getting stuck on "Connecting".
+- Ensured the placeholder image is displayed during the "Initialized" state.
+
 ## [0.1.27] - 2026-05-18
 
 ### Added

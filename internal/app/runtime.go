@@ -21,6 +21,7 @@ type RelayState struct {
 type SourceMode string
 
 const (
+	SourceInit   SourceMode = "initialized"
 	SourceSlate  SourceMode = "slate"
 	SourceCamera SourceMode = "camera"
 	SourceNone   SourceMode = "none"
@@ -40,7 +41,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		started:    time.Now(),
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
-		sourceMode: SourceNone,
+		sourceMode: SourceInit,
 	}
 
 	for _, t := range cfg.Targets {
