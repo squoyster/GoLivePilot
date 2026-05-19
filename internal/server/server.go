@@ -85,9 +85,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
-	slog.Info("api call", "method", "POST", "path", "/api/preview")
+	logger := slog.With("method", r.Method, "path", r.URL.Path)
+	logger.Info("api call")
 	if err := s.runtime.StartPreview(r.Context()); err != nil {
-		slog.Error("preview failed", "error", err)
+		// Log with context-specific details if possible, but handlePreview
+		// doesn't know the target yet. The runtime should log with target_id.
+		logger.Error("preview failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"ok":    false,
 			"error": err.Error(),
@@ -101,7 +104,8 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
-	slog.Info("api call", "method", "POST", "path", "/api/go-live")
+	logger := slog.With("method", "POST", "path", "/api/go-live")
+	logger.Info("api call")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "go-live",
@@ -109,7 +113,8 @@ func (s *Server) handleGoLive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
-	slog.Info("api call", "method", "POST", "path", "/api/stop")
+	logger := slog.With("method", "POST", "path", "/api/stop")
+	logger.Info("api call")
 	s.runtime.StopAll()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,

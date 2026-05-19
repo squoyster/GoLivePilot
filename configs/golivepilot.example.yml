@@ -191,7 +191,7 @@ slate:
 ###############################################
 
 ffmpeg:
-  binary: "/usr/bin/ffmpeg"
+  binary: "ffmpeg"
   log_level: "info"
 
   # Kill behavior for stopped/restarted relays.

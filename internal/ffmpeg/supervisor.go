@@ -26,6 +26,7 @@ type relayProcess struct {
 	status      RelayStatus
 	intentional bool
 	logs        *RingLog
+	logger      *slog.Logger
 }
 
 func NewSupervisor() *ProcessSupervisor {
@@ -72,7 +73,8 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 			State:     StateStarting,
 			StartedAt: time.Now(),
 		},
-		logs: NewRingLog(500),
+		logs:   NewRingLog(500),
+		logger: slog.With("target_id", req.TargetID, "mode", req.Mode),
 	}
 
 	stderr, err := cmd.StderrPipe()
@@ -82,12 +84,12 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		slog.Error("ffmpeg start failed", "target_id", req.TargetID, "error", err)
+		rp.logger.Error("ffmpeg start failed", "error", err)
 		cancel()
 		return err
 	}
 
-	slog.Info("ffmpeg started", "target_id", req.TargetID, "pid", cmd.Process.Pid)
+	rp.logger.Info("ffmpeg started", "pid", cmd.Process.Pid)
 	rp.status.State = StateRunning
 	if cmd.Process != nil {
 		rp.status.PID = cmd.Process.Pid
@@ -180,7 +182,7 @@ func (s *ProcessSupervisor) Status() map[string]RelayStatus {
 
 func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 	err := rp.cmd.Wait()
-	slog.Info("ffmpeg exited", "target_id", targetID, "error", err)
+	rp.logger.Info("ffmpeg exited", "error", err)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
