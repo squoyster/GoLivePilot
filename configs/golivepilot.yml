@@ -85,6 +85,7 @@ media_engine:
 ui:
   title: "GoLivePilot"
   subtitle: "Preview → Go Live → Stop"
+  preview_hls_url: "http://golivepilot-mediamtx.local:8888/live/preview/index.m3u8"
   show_logs: true
   show_config_validation: true
 
