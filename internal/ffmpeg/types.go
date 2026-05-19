@@ -11,6 +11,7 @@ const (
 	StateRunning  RelayState = "running"
 	StateStopping RelayState = "stopping"
 	StateFailed   RelayState = "failed"
+	StateStopped  RelayState = "stopped"
 )
 
 type StartRequest struct {

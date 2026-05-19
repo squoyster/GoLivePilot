@@ -16,8 +16,9 @@ var ErrAlreadyRunning = errors.New("relay already running")
 var ErrNotRunning = errors.New("relay not running")
 
 type ProcessSupervisor struct {
-	mu     sync.Mutex
-	relays map[string]*relayProcess
+	mu         sync.Mutex
+	relays     map[string]*relayProcess
+	lastStatus map[string]RelayStatus
 }
 
 type relayProcess struct {
@@ -30,9 +31,14 @@ type relayProcess struct {
 	logger      *slog.Logger
 }
 
+func (rp *relayProcess) isExited() bool {
+	return rp.cmd != nil && rp.cmd.ProcessState != nil && rp.cmd.ProcessState.Exited()
+}
+
 func NewSupervisor() *ProcessSupervisor {
 	return &ProcessSupervisor{
-		relays: make(map[string]*relayProcess),
+		relays:     make(map[string]*relayProcess),
+		lastStatus: make(map[string]RelayStatus),
 	}
 }
 
@@ -44,8 +50,14 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 	if req.TargetID == "" {
 		return fmt.Errorf("target id is required")
 	}
-	if _, exists := s.relays[req.TargetID]; exists {
-		return ErrAlreadyRunning
+
+	if existing, exists := s.relays[req.TargetID]; exists {
+		if !existing.isExited() && existing.status.State != StateFailed && existing.status.State != StateStopped {
+			return ErrAlreadyRunning
+		}
+		// Clean up existing stale relay
+		existing.cancel()
+		delete(s.relays, req.TargetID)
 	}
 
 	if req.Binary == "" {
@@ -114,6 +126,13 @@ func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 		return ErrNotRunning
 	}
 
+	if rp.isExited() {
+		rp.logger.Debug("relay already exited, removing from active map")
+		delete(s.relays, targetID)
+		s.mu.Unlock()
+		return nil
+	}
+
 	rp.intentional = true
 	rp.status.State = StateStopping
 	cmd := rp.cmd
@@ -131,7 +150,7 @@ func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second): // Reduced from 5s to 2s
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
@@ -171,7 +190,12 @@ func (s *ProcessSupervisor) Status() map[string]RelayStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	out := make(map[string]RelayStatus, len(s.relays))
+	out := make(map[string]RelayStatus, len(s.relays)+len(s.lastStatus))
+	// Add historical statuses first
+	for id, st := range s.lastStatus {
+		out[id] = st
+	}
+	// Overlay with active statuses
 	for id, rp := range s.relays {
 		st := rp.status
 		if rp.logs != nil {
@@ -189,6 +213,18 @@ func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Update status
+	if err != nil {
+		rp.status.LastError = err.Error()
+		rp.status.State = StateFailed
+	} else {
+		rp.status.State = StateStopped
+	}
+	if rp.logs != nil {
+		rp.status.Logs = rp.logs.Lines()
+	}
+	s.lastStatus[targetID] = rp.status
+
 	current, ok := s.relays[targetID]
 	if !ok || current != rp {
 		return
@@ -199,10 +235,6 @@ func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 		return
 	}
 
-	rp.status.State = StateFailed
-	if err != nil {
-		rp.status.LastError = err.Error()
-	}
-
-	// Reconnect loop comes next. For first version, leave failed.
+	// For first version, leave in relays map but marked as failed/stopped.
+	// Our Start() method will handle replacement.
 }
