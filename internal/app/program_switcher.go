@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/squoyster/golivepilot/internal/config"
 	"github.com/squoyster/golivepilot/internal/ffmpeg"
+	"github.com/squoyster/golivepilot/internal/mediamtx"
 )
 
 // ProgramSwitcher handles switching the upstream source that feeds the program path.
@@ -18,12 +20,14 @@ type ProgramSwitcher interface {
 type FFmpegProgramSwitcher struct {
 	cfg        *config.Config
 	supervisor RelaySupervisor
+	mtxClient  *mediamtx.Client
 }
 
-func NewFFmpegProgramSwitcher(cfg *config.Config, supervisor RelaySupervisor) *FFmpegProgramSwitcher {
+func NewFFmpegProgramSwitcher(cfg *config.Config, supervisor RelaySupervisor, mtxClient *mediamtx.Client) *FFmpegProgramSwitcher {
 	return &FFmpegProgramSwitcher{
 		cfg:        cfg,
 		supervisor: supervisor,
+		mtxClient:  mtxClient,
 	}
 }
 
@@ -120,6 +124,16 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 	if err := s.supervisor.Switch(ctx, req); err != nil {
 		logger.Error("failed to switch internal source", "error", err)
 		return err
+	}
+
+	// Wait for internal program source to be ready BEFORE starting/checking persistent relay
+	// This ensures the persistent relay doesn't fail immediately on first start
+	if s.mtxClient != nil {
+		path := "live/internal-program"
+		slog.Info("switcher: waiting for internal program readiness", "path", path)
+		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 5*time.Second); err != nil {
+			slog.Warn("switcher: internal program not ready yet, proceeding with relay check anyway", "error", err)
+		}
 	}
 
 	// Ensure persistent program relay is running to keep live/program alive

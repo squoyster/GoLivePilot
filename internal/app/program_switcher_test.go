@@ -29,7 +29,7 @@ func TestFFmpegProgramSwitcher_Switch(t *testing.T) {
 	cfg.Slate.Audio.Type = "silent"
 
 	sup := &mockSupervisor{}
-	s := NewFFmpegProgramSwitcher(cfg, sup)
+	s := NewFFmpegProgramSwitcher(cfg, sup, nil)
 
 	ctx := context.Background()
 

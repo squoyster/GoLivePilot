@@ -44,14 +44,15 @@ type Runtime struct {
 }
 
 func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
+	mtxClient := mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL)
 	rt := &Runtime{
 		cfg:        cfg,
 		started:    time.Now(),
 		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
-		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor),
+		mtxClient:  mtxClient,
+		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor, mtxClient),
 		sourceMode: SourceStandby,
-		mtxClient:  mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL),
 	}
 
 	for _, t := range cfg.Targets {

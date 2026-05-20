@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.50] - 2026-05-19
+
+### Fixed
+- Fixed an issue where the persistent program relay would fail immediately on start due to the internal source not being ready yet.
+- Enhanced `ProgramSwitcher` to explicitly wait for `live/internal-program` readiness before initiating the downstream relay.
+- Improved error handling in the switcher to warn rather than fail if the internal path takes longer than expected to initialize.
+
 ## [0.1.49] - 2026-05-19
 
 ### Fixed
