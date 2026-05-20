@@ -168,7 +168,6 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 			OutputArgs: []string{
 				"-c", "copy",
 				"-flvflags", "no_duration_filesize",
-				"-f", "flv",
 			},
 		}
 

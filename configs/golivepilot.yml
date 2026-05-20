@@ -16,6 +16,12 @@ app:
   #   advanced = expose logs/config/details
   ui_mode: "simple"
 
+logging:
+  # Log level: debug | info | warn | error
+  level: "info"
+  # Log format: text | json
+  format: "text"
+
 ###############################################
 # Operator authentication
 ###############################################
@@ -23,6 +29,8 @@ app:
 auth:
   # v0.1 recommended:
   #   psk_cookie = user enters PSK once, server sets HttpOnly cookie.
+  #
+  #   bearer_token = static token via Authorization header (for automation/testing).
   #
   # Avoid keeping tokens in browser localStorage.
   mode: "psk_cookie"

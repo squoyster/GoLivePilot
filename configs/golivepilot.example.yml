@@ -30,6 +30,8 @@ auth:
   # v0.1 recommended:
   #   psk_cookie = user enters PSK once, server sets HttpOnly cookie.
   #
+  #   bearer_token = static token via Authorization header (for automation/testing).
+  #
   # Avoid keeping tokens in browser localStorage.
   mode: "psk_cookie"
 
@@ -323,6 +325,9 @@ targets:
     #   rtmps://live-api-s.facebook.com:443/rtmp/<key>
     rtmps_url_env: "FB_RTMPS_URL"
 
+    # Facebook Stream Key (optional if included in URL, but recommended to separate)
+    rtmps_key_env: "FB_RTMPS_KEY"
+
     lifecycle:
       supports_preview: true
       supports_go_live: true
@@ -364,9 +369,11 @@ targets:
 
     profile_id: "x264-720p"
 
-    # Example value:
-    #   rtmps://a.rtmps.youtube.com:443/live2/<key>
+    # RTMPS destination URL.
     rtmps_url_env: "YT_RTMPS_URL"
+
+    # YouTube Stream Key
+    rtmps_key_env: "YT_RTMPS_KEY"
 
     lifecycle:
       supports_preview: true
@@ -408,6 +415,7 @@ targets:
 
     profile_id: "x264-720p"
     rtmps_url_env: "CUSTOM_RTMPS_URL"
+    rtmps_key_env: "CUSTOM_RTMPS_KEY"
 
     lifecycle:
       supports_preview: false
