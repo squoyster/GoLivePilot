@@ -29,6 +29,7 @@ type relayProcess struct {
 	intentional bool
 	logs        *RingLog
 	logger      *slog.Logger
+	exitedCh    chan struct{}
 }
 
 func (rp *relayProcess) isExited() bool {
@@ -55,7 +56,6 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 		if !existing.isExited() && existing.status.State != StateFailed && existing.status.State != StateStopped {
 			return ErrAlreadyRunning
 		}
-		// Clean up existing stale relay
 		existing.cancel()
 		delete(s.relays, req.TargetID)
 	}
@@ -72,7 +72,6 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 		return err
 	}
 
-	// Redact keys in logs
 	redactedArgs := make([]string, len(args))
 	copy(redactedArgs, args)
 	for i, arg := range redactedArgs {
@@ -96,8 +95,9 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 			State:     StateStarting,
 			StartedAt: time.Now(),
 		},
-		logs:   NewRingLog(500),
-		logger: slog.With("target_id", req.TargetID, "mode", req.Mode),
+		logs:     NewRingLog(500),
+		logger:   slog.With("target_id", req.TargetID, "mode", req.Mode),
+		exitedCh: make(chan struct{}),
 	}
 
 	stderr, err := cmd.StderrPipe()
@@ -121,13 +121,14 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 	s.relays[req.TargetID] = rp
 
 	go rp.captureLogs(stderr)
-	go s.wait(req.TargetID, rp)
+	go s.monitor(req.TargetID, rp)
 
 	return nil
 }
 
 func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 	slog.Info("supervisor: stopping relay", "target_id", targetID)
+
 	s.mu.Lock()
 	rp, ok := s.relays[targetID]
 	if !ok {
@@ -151,17 +152,17 @@ func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 		_ = cmd.Process.Signal(syscall.SIGINT)
 	}
 
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-
+	// Wait for the monitor goroutine to detect exit, with timeout and force-kill fallback.
 	select {
-	case <-done:
-	case <-time.After(2 * time.Second): // Reduced from 5s to 2s
+	case <-rp.exitedCh:
+	case <-time.After(2 * time.Second):
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
+		}
+		// Wait for monitor to process the kill
+		select {
+		case <-rp.exitedCh:
+		case <-time.After(500 * time.Millisecond):
 		}
 	case <-ctx.Done():
 		return ctx.Err()
@@ -174,22 +175,40 @@ func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 	return nil
 }
 
+func (s *ProcessSupervisor) monitor(targetID string, rp *relayProcess) {
+	err := rp.cmd.Wait()
+	rp.logger.Info("ffmpeg exited", "error", err)
+
+	s.mu.Lock()
+	if err != nil {
+		rp.status.LastError = RedactURL(err.Error())
+		rp.status.State = StateFailed
+	} else {
+		rp.status.State = StateStopped
+	}
+	if rp.logs != nil {
+		rp.status.Logs = rp.logs.Lines()
+	}
+	s.lastStatus[targetID] = rp.status
+
+	current, ok := s.relays[targetID]
+	if !ok || current != rp {
+		s.mu.Unlock()
+		close(rp.exitedCh)
+		return
+	}
+
+	delete(s.relays, targetID)
+	s.mu.Unlock()
+
+	close(rp.exitedCh)
+}
+
 func (s *ProcessSupervisor) Switch(ctx context.Context, req StartRequest) error {
-	// To perform a "seamless" switch on MediaMTX (with overridePublisher: true),
-	// we should start the NEW publisher first. It will take over the path.
-	// However, our supervisor currently prevents starting a relay with the same ID.
-	// So we must temporarily bypass the "already running" check or use a different flow.
-
-	// For now, let's keep it simple but ensure we DON'T leave a gap if possible.
-	// Actually, if we want to bypass the ID check, we'd need to rename the ID or change Start.
-
-	// Let's try to do it in reverse: Start new, THEN old will be kicked out by MediaMTX anyway.
-	// But our supervisor tracks the process by TargetID.
-
-	// Improved Switch:
-	// 1. Get the existing relay process.
-	// 2. Start the NEW one with a temporary ID? No, that's messy.
-	// 3. Just stop and start, but with minimal delay.
+	// Stop the old relay first, then start the new one.
+	// The brief gap between stop and start is acceptable for v0.1.
+	// Future versions can implement start-before-stop using MediaMTX's
+	// overridePublisher feature once it's configured.
 	if err := s.Stop(ctx, req.TargetID); err != nil && !errors.Is(err, ErrNotRunning) {
 		return err
 	}
@@ -215,11 +234,9 @@ func (s *ProcessSupervisor) Status() map[string]RelayStatus {
 	defer s.mu.Unlock()
 
 	out := make(map[string]RelayStatus, len(s.relays)+len(s.lastStatus))
-	// Add historical statuses first
 	for id, st := range s.lastStatus {
 		out[id] = st
 	}
-	// Overlay with active statuses
 	for id, rp := range s.relays {
 		st := rp.status
 		if rp.logs != nil {
@@ -230,42 +247,11 @@ func (s *ProcessSupervisor) Status() map[string]RelayStatus {
 	return out
 }
 
-func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
-	err := rp.cmd.Wait()
-	rp.logger.Info("ffmpeg exited", "error", err)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Update status
-	if err != nil {
-		rp.status.LastError = RedactURL(err.Error())
-		rp.status.State = StateFailed
-	} else {
-		rp.status.State = StateStopped
-	}
-	if rp.logs != nil {
-		rp.status.Logs = rp.logs.Lines()
-	}
-	s.lastStatus[targetID] = rp.status
-
-	current, ok := s.relays[targetID]
-	if !ok || current != rp {
-		return
-	}
-
-	// Always remove from active relays map once it has exited
-	delete(s.relays, targetID)
-}
-
 func RedactURL(u string) string {
 	if !strings.Contains(u, "rtmp") {
 		return u
 	}
-	// Redact after /rtmp/ or after the last slash
 	if idx := strings.LastIndex(u, "/"); idx != -1 {
-		// FB keys are often preceded by /rtmp/
-		// We want to keep everything up to the last slash (excluding it if it's the very end)
 		return u[:idx+1] + "****"
 	}
 	return u

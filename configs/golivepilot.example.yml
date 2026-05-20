@@ -21,6 +21,10 @@ logging:
   level: "info"
   # Log format: text | json
   format: "text"
+  # Optional log file path — logs are tee'd to both stderr and this file.
+  # Agents can inspect this file for diagnostics.
+  # Use an absolute path in production (e.g. /data/golivepilot.log in Docker).
+  file: "golivepilot.log"
 
 ###############################################
 # Operator authentication
@@ -445,59 +449,38 @@ pipeline:
       label: "MediaMTX"
       kind: "service"
 
-    # 2. Source: Slate (Slate image -> internal-program)
-    - id: "__internal_source__"
+    # 2. Program Bus — Go-based stream switch that replaces the old
+    #    __internal_source__ → __program_source__ → relays chain.
+    #    The bus manages its own FFmpeg subprocesses and switches
+    #    between sources at GOP boundaries without restarting outputs.
+    - id: "__program_bus__"
+      label: "Program Bus"
+      kind: "bus"
+      source_ids: ["__slate_source__", "__camera_source__"]
+
+    # 3. Slate Source (static image)
+    - id: "__slate_source__"
       label: "Slate Source"
       kind: "source.slate"
-      depends_on: ["mediamtx"]
       input: "assets/starting-soon.png"
-      output: "rtmp://127.0.0.1:1935/live/internal-program"
-      timeout: "15s"
 
-    # 3. Source: Camera (Camera feed -> internal-program)
-    - id: "camera_source"
+    # 4. Camera Source (browser RTMP)
+    - id: "__camera_source__"
       label: "Camera Source"
       kind: "source.rtmp"
-      depends_on: ["mediamtx"]
       input: "rtmp://127.0.0.1:1935/live/camera"
-      output: "rtmp://127.0.0.1:1935/live/internal-program"
-      timeout: "15s"
 
-    # 4. Program Output (internal-program -> live/program)
-    - id: "__program_source__"
-      label: "Program Output"
-      kind: "stream.program"
-      depends_on: ["mediamtx"]
-      input: "rtmp://127.0.0.1:1935/live/internal-program"
-      output: "rtmp://127.0.0.1:1935/live/program"
-      timeout: "15s"
-
-    # 5. Local Preview Relay (live/program -> live/preview)
-    - id: "__preview__"
-      label: "Local Preview"
-      kind: "relay.rtmp"
-      depends_on: ["__program_source__"]
-      input: "rtmp://127.0.0.1:1935/live/program"
-      output: "rtmp://127.0.0.1:1935/live/preview"
-
-    # 6. Facebook Relay (live/program -> Facebook RTMPS)
-    - id: "facebook-main"
-      label: "Facebook"
-      kind: "relay.rtmps"
-      depends_on: ["__program_source__"]
-      input: "rtmp://127.0.0.1:1935/live/program"
-      output_env: "FACEBOOK_RTMPS_URL"
-      output_key_env: "FACEBOOK_RTMPS_KEY"
-
+  # States only manage the MediaMTX service. The bus and its sources/outputs
+  # are managed directly by the Go StreamSwitch process.
   states:
     - id: "standby"
       nodes: ["mediamtx"]
     - id: "preview"
-      nodes: ["mediamtx", "__internal_source__", "__program_source__", "__preview__", "facebook-main"]
+      nodes: ["mediamtx"]
     - id: "live"
-      nodes: ["mediamtx", "camera_source", "__program_source__", "__preview__", "facebook-main"]
+      nodes: ["mediamtx"]
     - id: "ended"
-      nodes: ["mediamtx", "__program_source__", "__preview__", "facebook-main"]
+      nodes: ["mediamtx"]
 
   transitions:
     - id: "standby_to_preview"

@@ -103,6 +103,160 @@ func TestValidateConfig(t *testing.T) {
 	}
 }
 
+func TestValidatePipeline(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{
+			name: "valid pipeline",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "mediamtx", Kind: "service"},
+						{ID: "source", Kind: "source.slate"},
+					},
+					States: []StateConfig{
+						{ID: "standby", Nodes: []string{"mediamtx"}},
+						{ID: "preview", Nodes: []string{"mediamtx", "source"}},
+					},
+					Transitions: []TransitionConfig{
+						{ID: "to_preview", From: "standby", To: "preview"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing node id",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "", Kind: "service"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "duplicate node id",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+						{ID: "node1", Kind: "source"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing state id",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "", Nodes: []string{"node1"}},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "duplicate state id",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "state1", Nodes: []string{"node1"}},
+						{ID: "state1", Nodes: []string{"node1"}},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "state references missing node",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "state1", Nodes: []string{"node1", "missing"}},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "transition references missing from state",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "state1", Nodes: []string{"node1"}},
+					},
+					Transitions: []TransitionConfig{
+						{ID: "t1", From: "missing", To: "state1"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "transition references missing to state",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "state1", Nodes: []string{"node1"}},
+					},
+					Transitions: []TransitionConfig{
+						{ID: "t1", From: "state1", To: "missing"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "transition from any is valid",
+			cfg: &Config{
+				Pipeline: PipelineConfig{
+					Nodes: []NodeConfig{
+						{ID: "node1", Kind: "service"},
+					},
+					States: []StateConfig{
+						{ID: "standby", Nodes: []string{"node1"}},
+					},
+					Transitions: []TransitionConfig{
+						{ID: "t1", From: "any", To: "standby"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateConfig(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	// Test loading non-existent file uses defaults
 	cfg, err := LoadConfig("non-existent.yml")

@@ -39,6 +39,7 @@ type AppConfig struct {
 type LoggingConfig struct {
 	Level  string `json:"level" yaml:"level"`
 	Format string `json:"format" yaml:"format"` // "text" or "json"
+	File   string `json:"file" yaml:"file"`     // optional log file path (tee)
 }
 
 type AuthConfig struct {
@@ -212,13 +213,14 @@ type PipelineConfig struct {
 type NodeConfig struct {
 	ID           string   `json:"id" yaml:"id"`
 	Label        string   `json:"label" yaml:"label"`
-	Kind         string   `json:"kind" yaml:"kind"` // service, source.slate, source.rtmp, stream.program, relay.rtmp, relay.rtmps
+	Kind         string   `json:"kind" yaml:"kind"` // service, source.slate, source.rtmp, stream.program, relay.rtmp, relay.rtmps, bus
 	DependsOn    []string `json:"depends_on" yaml:"depends_on"`
 	Input        string   `json:"input" yaml:"input"`
 	Output       string   `json:"output" yaml:"output"`
 	OutputEnv    string   `json:"output_env" yaml:"output_env"`
 	OutputKeyEnv string   `json:"output_key_env" yaml:"output_key_env"`
 	ProfileID    string   `json:"profile_id" yaml:"profile_id"`
+	SourceIDs    []string `json:"source_ids" yaml:"source_ids"` // for "bus" nodes
 	StableFor    string   `json:"stable_for" yaml:"stable_for"`
 	Timeout      string   `json:"timeout" yaml:"timeout"`
 }

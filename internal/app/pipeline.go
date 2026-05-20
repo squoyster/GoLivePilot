@@ -4,24 +4,24 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/squoyster/golivepilot/internal/config"
 	"github.com/squoyster/golivepilot/internal/ffmpeg"
-	"github.com/squoyster/golivepilot/internal/mediamtx"
 )
 
 type Pipeline struct {
 	cfg        *config.Config
 	supervisor RelaySupervisor
-	mtxClient  *mediamtx.Client
+	mtxClient  MediaMTXClient
 
 	mu           sync.RWMutex
 	currentState string
 }
 
-func NewPipeline(cfg *config.Config, supervisor RelaySupervisor, mtxClient *mediamtx.Client) *Pipeline {
+func NewPipeline(cfg *config.Config, supervisor RelaySupervisor, mtxClient MediaMTXClient) *Pipeline {
 	return &Pipeline{
 		cfg:          cfg,
 		supervisor:   supervisor,
@@ -102,6 +102,14 @@ func (p *Pipeline) Transition(ctx context.Context, targetState string) error {
 		}
 	}
 
+	// After starting new nodes, previously-running nodes may have exited because
+	// their input stream ended (e.g., program source when upstream source was
+	// stopped). Do a second ensure pass to restart any that failed during the
+	// switch window.
+	for _, id := range targetNodeIDs {
+		_ = p.ensureNode(ctx, id, make(map[string]bool))
+	}
+
 	p.currentState = targetState
 	return nil
 }
@@ -143,6 +151,10 @@ func (p *Pipeline) ensureNode(ctx context.Context, id string, started map[string
 	slog.Info("pipeline: starting node", "node_id", id, "kind", node.Kind)
 
 	switch node.Kind {
+	case "bus":
+		// Bus nodes are managed by the StreamSwitch, not by the Pipeline.
+		// The Pipeline acknowledges them as started so downstream nodes
+		// (relays) can depend on them without waiting for an FFmpeg process.
 	case "service":
 		// External service like MediaMTX. We just check readiness.
 		if id == "mediamtx" {
@@ -161,13 +173,7 @@ func (p *Pipeline) ensureNode(ctx context.Context, id string, started map[string
 
 		// Wait for readiness if it's a program stream
 		if node.Kind == "stream.program" || node.Kind == "source.slate" || node.Kind == "source.rtmp" {
-			// Extract path from output URL
-			// Example: rtmp://.../live/program -> live/program
-			// This is a bit hacky, should probably be in node config explicitly but let's try to derive it.
-			path := "live/program" // Default for now
-			if node.ID == "__internal_source__" {
-				path = "live/internal-program"
-			}
+			path := derivePath(node.Output, p.cfg.MediaEngine.MediaMTX.InternalRTMPBase)
 
 			timeout := 10 * time.Second
 			if node.Timeout != "" {
@@ -189,6 +195,17 @@ func (p *Pipeline) ensureNode(ctx context.Context, id string, started map[string
 	return nil
 }
 
+func (p *Pipeline) resolveProfileArgs(nodeID, profileID string) []string {
+	if profileID != "" {
+		for _, prof := range p.cfg.Profiles {
+			if prof.ID == profileID {
+				return prof.Args
+			}
+		}
+	}
+	return p.getTranscodeArgs()
+}
+
 func (p *Pipeline) buildStartRequest(node config.NodeConfig) (ffmpeg.StartRequest, error) {
 	req := ffmpeg.StartRequest{
 		TargetID: node.ID,
@@ -202,15 +219,18 @@ func (p *Pipeline) buildStartRequest(node config.NodeConfig) (ffmpeg.StartReques
 		val := p.cfg.GetEnv(node.OutputEnv)
 		if val != "" {
 			output = val
+		} else if strings.HasPrefix(node.OutputEnv, "rtmp://") || strings.HasPrefix(node.OutputEnv, "rtmps://") {
+			// Field value is a literal URL, not an env var name.
+			output = node.OutputEnv
 		}
 	}
 	if node.OutputKeyEnv != "" {
 		key := p.cfg.GetEnv(node.OutputKeyEnv)
+		if key == "" {
+			key = node.OutputKeyEnv
+		}
 		if key != "" {
-			// Append key to output
-			// If output doesn't end in /, add it?
-			// This depends on how it's defined in config.
-			output += key
+			output = strings.TrimSuffix(output, "/") + "/" + key
 		}
 	}
 	req.Output = output
@@ -236,7 +256,9 @@ func (p *Pipeline) buildStartRequest(node config.NodeConfig) (ffmpeg.StartReques
 			input = p.cfg.Slate.StandbyImage
 		}
 
-		req.Input = input
+		// Include image -i in InputArgs so -loop 1 applies directly to it.
+		// BuildArgs preserves InputArgs order before any auto-added -i from req.Input.
+		req.Input = ""
 		req.InputArgs = []string{"-re", "-loop", "1", "-framerate", "30", "-i", input}
 		if p.cfg.Slate.Audio.Enabled {
 			req.InputArgs = append(req.InputArgs, "-f", "lavfi", "-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", p.cfg.Slate.Audio.SampleRate))
@@ -244,27 +266,25 @@ func (p *Pipeline) buildStartRequest(node config.NodeConfig) (ffmpeg.StartReques
 		} else {
 			req.OutputArgs = append(req.OutputArgs, "-map", "0:v:0")
 		}
-		req.OutputArgs = append(req.OutputArgs, p.getTranscodeArgs()...)
+		req.OutputArgs = append(req.OutputArgs, p.resolveProfileArgs(node.ID, node.ProfileID)...)
 	} else if node.Kind == "source.rtmp" {
 		req.Input = node.Input
-		req.InputArgs = []string{"-re", "-i", node.Input}
+		req.InputArgs = []string{"-re"}
 		req.OutputArgs = []string{"-fflags", "+genpts"}
-		req.OutputArgs = append(req.OutputArgs, p.getTranscodeArgs()...)
+		req.OutputArgs = append(req.OutputArgs, p.resolveProfileArgs(node.ID, node.ProfileID)...)
 		req.OutputArgs = append(req.OutputArgs, "-avoid_negative_ts", "make_zero")
 	} else if node.Kind == "stream.program" {
 		req.Input = node.Input
-		req.InputArgs = []string{"-i", node.Input}
-		req.OutputArgs = append(req.OutputArgs, p.getTranscodeArgs()...)
+		req.InputArgs = []string{}
+		req.OutputArgs = append(req.OutputArgs, p.resolveProfileArgs(node.ID, node.ProfileID)...)
 	} else if node.Kind == "relay.rtmp" || node.Kind == "relay.rtmps" {
 		req.Input = node.Input
-		req.InputArgs = []string{"-i", node.Input}
+		req.InputArgs = []string{}
 		if node.Kind == "relay.rtmps" {
-			// Use re-encode for RTMPS (Facebook requirement)
-			req.OutputArgs = append(req.OutputArgs, p.getTranscodeArgs()...)
+			req.OutputArgs = append(req.OutputArgs, p.resolveProfileArgs(node.ID, node.ProfileID)...)
 		} else {
-			req.OutputArgs = []string{"-c", "copy"}
+			req.OutputArgs = []string{"-c", "copy", "-flvflags", "no_duration_filesize"}
 		}
-		req.OutputArgs = append(req.OutputArgs, "-flvflags", "no_duration_filesize")
 	}
 
 	return req, nil
@@ -288,4 +308,14 @@ func (p *Pipeline) getTranscodeArgs() []string {
 		"-ac", "2",
 		"-flvflags", "no_duration_filesize",
 	}
+}
+
+// derivePath extracts the MediaMTX path from an output URL by stripping the RTMP base.
+// Example: "rtmp://host:1935/live/program" + base "rtmp://host:1935" -> "live/program"
+func derivePath(outputURL, rtmpBase string) string {
+	if outputURL != "" && rtmpBase != "" && strings.HasPrefix(outputURL, rtmpBase) {
+		path := strings.TrimPrefix(outputURL, rtmpBase)
+		return strings.TrimPrefix(path, "/")
+	}
+	return "live/program"
 }

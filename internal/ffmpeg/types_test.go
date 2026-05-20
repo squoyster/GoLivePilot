@@ -15,7 +15,7 @@ func TestBuildArgs_SlateMode(t *testing.T) {
 		Input:    "assets/starting-soon.png",
 		Output:   "rtmp://localhost:1935/live/preview",
 		InputArgs: []string{
-			"-re", "-loop", "1", "-framerate", "30", "-i", "assets/starting-soon.png",
+			"-re", "-loop", "1", "-framerate", "30",
 			"-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
 		},
 		OutputArgs: []string{
