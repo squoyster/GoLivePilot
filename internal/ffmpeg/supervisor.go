@@ -230,11 +230,6 @@ func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 		return
 	}
 
-	if rp.intentional {
-		delete(s.relays, targetID)
-		return
-	}
-
-	// For first version, leave in relays map but marked as failed/stopped.
-	// Our Start() method will handle replacement.
+	// Always remove from active relays map once it has exited
+	delete(s.relays, targetID)
 }

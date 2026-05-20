@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.46] - 2026-05-19
+
+### Changed
+- Implemented persistent platform relay lifecycle: platform relays (Facebook, YouTube) now stay running during the Preview -> Go Live transition.
+- Refactored `Runtime.ensurePlatformRelays` to be idempotent, only starting missing or failed relays.
+- Enhanced `ProcessSupervisor` to automatically remove exited processes from the active relay map, preventing "already running" errors and stale status reports.
+- Improved logging for stream transitions, clearly indicating when platform relays are kept intact.
+
 ## [0.1.45] - 2026-05-19
 
 ### Fixed

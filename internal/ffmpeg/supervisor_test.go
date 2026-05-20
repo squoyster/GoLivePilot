@@ -91,11 +91,24 @@ func TestSupervisor_RestartFailed(t *testing.T) {
 	_ = s.Start(ctx, req)
 
 	// Wait a bit for it to fail
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	status := s.Status()
 	if status["fail"].State != StateFailed {
 		t.Errorf("expected failed, got %s", status["fail"].State)
+	}
+
+	// Verify it's NOT in s.relays anymore but IN s.lastStatus
+	s.mu.Lock()
+	_, inRelays := s.relays["fail"]
+	_, inLast := s.lastStatus["fail"]
+	s.mu.Unlock()
+
+	if inRelays {
+		t.Error("expected 'fail' to be removed from active relays after exit")
+	}
+	if !inLast {
+		t.Error("expected 'fail' to be in lastStatus after exit")
 	}
 
 	// Try to start again

@@ -112,21 +112,25 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 		programSource = r.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/program"
 	}
 
+	// Get current statuses from supervisor
+	status := r.supervisor.Status()
+
 	for _, t := range r.cfg.Targets {
 		if !t.Enabled {
 			continue
 		}
 
-		// Check if already running
-		status := r.supervisor.Status()
-		if st, exists := status[t.ID]; exists && st.State == "running" {
-			slog.Info("skipping platform relay because already running", "target_id", t.ID)
-			continue
-		} else {
-			slog.Info("starting platform relay", "target_id", t.ID, "last_state", st.State)
-		}
-
 		tLogger := slog.With("target_id", t.ID, "mode", "platform-relay")
+
+		// Check if already running
+		if st, exists := status[t.ID]; exists && st.State == "running" {
+			tLogger.Info("platform relay already running; leaving intact")
+			continue
+		} else if exists {
+			tLogger.Info("platform relay missing/failed; starting", "last_state", st.State)
+		} else {
+			tLogger.Info("platform relay missing; starting")
+		}
 
 		// Resolve output URL
 		targetURL := os.Getenv(t.RTMPSURLEnv)
@@ -213,21 +217,19 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	r.sourceMode = SourceCamera
 
 	// 2. Switch Program Source to Camera (Platform relays remain running)
-	logger.Info("switching program source to camera")
+	logger.Info("program source switching: slate -> camera")
 	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
 		return err
 	}
 
 	// 3. Wait for live/program readiness again after switch
-	// Although we want platform relays to stay running, if we didn't stop them,
-	// ffmpeg copy might handle the source switch, or it might exit.
-	// If it exits, ensurePlatformRelays will restart it.
 	programPath := "live/program"
 	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 10*time.Second); err != nil {
 		logger.Error("program source failed to become ready after switch", "error", err)
 	}
 
-	// 4. Ensure platform relays are running (in case some didn't start in preview or exited during switch)
+	// 4. Ensure platform relays are running (only if they died during switch)
+	logger.Info("not restarting platform relays for go-live (checking if any failed)")
 	return r.ensurePlatformRelays(ctx)
 }
 
