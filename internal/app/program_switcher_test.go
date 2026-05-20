@@ -75,8 +75,8 @@ func TestRuntime_WithSwitcher(t *testing.T) {
 	t.Run("Status reflecting mode", func(t *testing.T) {
 		r.sourceMode = SourceCamera
 		status := r.Status()
-		if status["source_mode"] != SourceCamera {
-			t.Errorf("expected source_mode %v, got %v", SourceCamera, status["source_mode"])
+		if status["source_mode"] != string(SourceCamera) {
+			t.Errorf("expected source_mode %v, got %v", string(SourceCamera), status["source_mode"])
 		}
 	})
 }

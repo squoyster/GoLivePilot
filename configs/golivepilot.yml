@@ -379,6 +379,9 @@ targets:
     #   rtmps://a.rtmps.youtube.com:443/live2/<key>
     rtmps_url_env: "YT_RTMPS_URL"
 
+    # YouTube Stream Key
+    rtmps_key_env: "YT_RTMPS_KEY"
+
     lifecycle:
       supports_preview: true
       supports_go_live: true
@@ -419,6 +422,7 @@ targets:
 
     profile_id: "x264-720p"
     rtmps_url_env: "CUSTOM_RTMPS_URL"
+    rtmps_key_env: "CUSTOM_RTMPS_KEY"
 
     lifecycle:
       supports_preview: false
@@ -427,8 +431,83 @@ targets:
       single_writer: true
 
 ###############################################
-# Runtime state
+# Pipeline Orchestration
 ###############################################
+
+pipeline:
+  nodes:
+    # 1. Services
+    - id: "mediamtx"
+      label: "MediaMTX"
+      kind: "service"
+
+    # 2. Source: Slate (Slate image -> internal-program)
+    - id: "__internal_source__"
+      label: "Slate Source"
+      kind: "source.slate"
+      depends_on: ["mediamtx"]
+      input: "assets/starting-soon.png"
+      output: "rtmp://golivepilot-mediamtx.local:1935/live/internal-program"
+      timeout: "15s"
+
+    # 3. Source: Camera (Camera feed -> internal-program)
+    - id: "camera_source"
+      label: "Camera Source"
+      kind: "source.rtmp"
+      depends_on: ["mediamtx"]
+      input: "rtmp://golivepilot-mediamtx.local:1935/live/camera"
+      output: "rtmp://golivepilot-mediamtx.local:1935/live/internal-program"
+      timeout: "15s"
+
+    # 4. Program Output (internal-program -> live/program)
+    - id: "__program_source__"
+      label: "Program Output"
+      kind: "stream.program"
+      depends_on: ["mediamtx"]
+      input: "rtmp://golivepilot-mediamtx.local:1935/live/internal-program"
+      output: "rtmp://golivepilot-mediamtx.local:1935/live/program"
+      timeout: "15s"
+
+    # 5. Local Preview Relay (live/program -> live/preview)
+    - id: "__preview__"
+      label: "Local Preview"
+      kind: "relay.rtmp"
+      depends_on: ["__program_source__"]
+      input: "rtmp://golivepilot-mediamtx.local:1935/live/program"
+      output: "rtmp://127.0.0.1:1935/live/preview"
+
+    # 6. Facebook Relay (live/program -> Facebook RTMPS)
+    - id: "facebook-main"
+      label: "Facebook"
+      kind: "relay.rtmps"
+      depends_on: ["__program_source__"]
+      input: "rtmp://golivepilot-mediamtx.local:1935/live/program"
+      output_env: "FACEBOOK_RTMPS_URL"
+      output_key_env: "FACEBOOK_RTMPS_KEY"
+
+  states:
+    - id: "standby"
+      nodes: ["mediamtx"]
+    - id: "preview"
+      nodes: ["mediamtx", "__internal_source__", "__program_source__", "__preview__", "facebook-main"]
+    - id: "live"
+      nodes: ["mediamtx", "camera_source", "__program_source__", "__preview__", "facebook-main"]
+    - id: "ended"
+      nodes: ["mediamtx", "__program_source__", "__preview__", "facebook-main"]
+
+  transitions:
+    - id: "standby_to_preview"
+      from: "standby"
+      to: "preview"
+    - id: "preview_to_live"
+      from: "preview"
+      to: "live"
+    - id: "live_to_ended"
+      from: "live"
+      to: "ended"
+    - id: "any_to_standby"
+      from: "any"
+      to: "standby"
 
 runtime:
   store:

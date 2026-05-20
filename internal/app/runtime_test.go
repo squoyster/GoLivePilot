@@ -58,8 +58,8 @@ func TestRuntime_Status(t *testing.T) {
 	r := NewRuntime(cfg, sup)
 
 	status := r.Status()
-	mode := status["source_mode"].(SourceMode)
-	if mode != SourceStandby {
+	mode := status["source_mode"].(string)
+	if mode != string(SourceStandby) {
 		t.Errorf("expected source_mode %v, got %v", SourceStandby, mode)
 	}
 }

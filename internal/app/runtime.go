@@ -40,6 +40,7 @@ type Runtime struct {
 	relays     map[string]RelayState
 	supervisor RelaySupervisor
 	switcher   ProgramSwitcher
+	pipeline   *Pipeline
 	sourceMode SourceMode
 	mtxClient  *mediamtx.Client
 
@@ -59,6 +60,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		supervisor: supervisor,
 		mtxClient:  mtxClient,
 		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor, mtxClient),
+		pipeline:   NewPipeline(cfg, supervisor, mtxClient),
 		sourceMode: SourceStandby,
 		attempts:   make(map[string]int),
 	}
@@ -109,6 +111,30 @@ func (r *Runtime) restarterLoop() {
 }
 
 func (r *Runtime) checkAndRestartRelays() {
+	if r.cfg.Pipeline.Nodes != nil {
+		// Pipeline mode handles its own nodes
+		p := r.pipeline
+		state := p.CurrentState()
+		if state == "standby" || state == "ended" {
+			return
+		}
+
+		// Re-ensure nodes for current state
+		var targetNodeIDs []string
+		for _, s := range r.cfg.Pipeline.States {
+			if s.ID == state {
+				targetNodeIDs = s.Nodes
+				break
+			}
+		}
+
+		started := make(map[string]bool)
+		for _, id := range targetNodeIDs {
+			_ = p.ensureNode(r.ctx, id, started)
+		}
+		return
+	}
+
 	// We only want to restart relays if we are in a state that expects them to be running.
 	if r.sourceMode == SourceStandby || r.sourceMode == SourceStopped {
 		return
@@ -159,10 +185,15 @@ func (r *Runtime) checkAndRestartRelays() {
 }
 
 func (r *Runtime) Status() map[string]any {
+	mode := string(r.sourceMode)
+	if r.cfg.Pipeline.Nodes != nil {
+		mode = r.pipeline.CurrentState()
+	}
+
 	status := map[string]any{
 		"status":      "online",
 		"started":     r.started.Format(time.RFC3339),
-		"source_mode": r.sourceMode,
+		"source_mode": mode,
 	}
 
 	if r.supervisor != nil {
@@ -175,6 +206,17 @@ func (r *Runtime) Status() map[string]any {
 }
 
 func (r *Runtime) StartPreview(ctx context.Context) error {
+	if r.cfg.Pipeline.Nodes != nil {
+		if err := r.pipeline.Transition(ctx, "preview"); err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.sourceMode = SourceSlate
+		r.mu.Unlock()
+		return nil
+	}
+
+	// Legacy flow below
 	logger := slog.With("mode", "preview")
 	logger.Debug("starting preview")
 
@@ -311,6 +353,17 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 }
 
 func (r *Runtime) StartGoLive(ctx context.Context) error {
+	if r.cfg.Pipeline.Nodes != nil {
+		if err := r.pipeline.Transition(ctx, "live"); err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.sourceMode = SourceCamera
+		r.mu.Unlock()
+		return nil
+	}
+
+	// Legacy flow below
 	logger := slog.With("mode", "go-live")
 	logger.Info("switching to camera (go-live)")
 
@@ -339,6 +392,20 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 }
 
 func (r *Runtime) StopAll() {
+	if r.cfg.Pipeline.Nodes != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := r.pipeline.Transition(ctx, "ended"); err != nil {
+			slog.Error("pipeline: failed to transition to ended", "error", err)
+			r.HardStop()
+		}
+		r.mu.Lock()
+		r.sourceMode = SourceEnded
+		r.mu.Unlock()
+		return
+	}
+
+	// Legacy flow below
 	slog.Info("stopping all relays - switching to ended slate")
 	r.sourceMode = SourceEnded
 
@@ -360,6 +427,23 @@ func (r *Runtime) StopAll() {
 }
 
 func (r *Runtime) HardStop() {
+	if r.cfg.Pipeline.Nodes != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := r.pipeline.Transition(ctx, "standby"); err != nil {
+			slog.Error("pipeline: failed to transition to standby", "error", err)
+			// Emergency hard stop
+			if r.supervisor != nil {
+				r.supervisor.StopAll(context.Background())
+			}
+		}
+		r.mu.Lock()
+		r.sourceMode = SourceStandby
+		r.mu.Unlock()
+		return
+	}
+
+	// Legacy flow below
 	slog.Info("hard stopping all relays")
 	r.sourceMode = SourceStopped
 	if r.supervisor != nil {
