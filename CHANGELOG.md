@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.47] - 2026-05-19
+
+### Fixed
+- Fixed an issue where platform relays (e.g., Facebook) could end up in a `stopped` state during the Go Live transition due to transient source unavailability.
+- Added a 2-second delay and a proactive health check (`ensurePlatformRelays`) after switching the program source to ensure downstream relays recover if they were briefly interrupted.
+- Improved `StartPreview` stability with an asynchronous background check to ensure platform relays stay running after the initial start.
+
 ## [0.1.46] - 2026-05-19
 
 ### Changed

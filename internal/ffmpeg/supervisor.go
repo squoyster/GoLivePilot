@@ -166,6 +166,21 @@ func (s *ProcessSupervisor) Stop(ctx context.Context, targetID string) error {
 }
 
 func (s *ProcessSupervisor) Switch(ctx context.Context, req StartRequest) error {
+	// To perform a "seamless" switch on MediaMTX (with overridePublisher: true),
+	// we should start the NEW publisher first. It will take over the path.
+	// However, our supervisor currently prevents starting a relay with the same ID.
+	// So we must temporarily bypass the "already running" check or use a different flow.
+
+	// For now, let's keep it simple but ensure we DON'T leave a gap if possible.
+	// Actually, if we want to bypass the ID check, we'd need to rename the ID or change Start.
+
+	// Let's try to do it in reverse: Start new, THEN old will be kicked out by MediaMTX anyway.
+	// But our supervisor tracks the process by TargetID.
+
+	// Improved Switch:
+	// 1. Get the existing relay process.
+	// 2. Start the NEW one with a temporary ID? No, that's messy.
+	// 3. Just stop and start, but with minimal delay.
 	if err := s.Stop(ctx, req.TargetID); err != nil && !errors.Is(err, ErrNotRunning) {
 		return err
 	}

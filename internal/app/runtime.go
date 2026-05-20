@@ -101,7 +101,17 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger.Info("program source is ready")
 
 	// 4. Start Durable Platform Relays (live/program -> Platform)
-	return r.ensurePlatformRelays(ctx)
+	if err := r.ensurePlatformRelays(ctx); err != nil {
+		return err
+	}
+
+	// Double check after a few seconds to ensure they didn't fail immediately
+	go func() {
+		time.Sleep(5 * time.Second)
+		_ = r.ensurePlatformRelays(context.Background())
+	}()
+
+	return nil
 }
 
 func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
@@ -229,7 +239,9 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	}
 
 	// 4. Ensure platform relays are running (only if they died during switch)
-	logger.Info("not restarting platform relays for go-live (checking if any failed)")
+	logger.Info("ensuring platform relays are healthy after switch")
+	// Small delay to allow platform relays that failed due to the switch to actually exit and be detected as stopped
+	time.Sleep(2 * time.Second)
 	return r.ensurePlatformRelays(ctx)
 }
 
