@@ -20,7 +20,7 @@ type Runtime struct {
 	started    time.Time
 	supervisor RelaySupervisor
 	pipeline   *Pipeline
-	mtxClient  MediaMTXClient
+	mtxClient  *mediamtx.Client
 	switcher   *streamswitch.StreamSwitch
 
 	mu      sync.Mutex
@@ -34,7 +34,7 @@ type Runtime struct {
 type RuntimeOption func(*Runtime)
 
 // WithMediaMTXClient overrides the default MediaMTX client (useful for testing).
-func WithMediaMTXClient(c MediaMTXClient) RuntimeOption {
+func WithMediaMTXClient(c *mediamtx.Client) RuntimeOption {
 	return func(r *Runtime) {
 		r.mtxClient = c
 	}
