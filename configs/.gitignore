@@ -1,0 +1,9 @@
+# Ignore everything in configs/
+*
+
+# Except this file (so the ignore rules are tracked)
+!.gitignore
+
+# Except the example directory (safe templates)
+!example/
+!example/**

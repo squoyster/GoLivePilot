@@ -343,112 +343,98 @@ srt
 
 ## Configuration Model
 
-GoLivePilot should be driven by a single YAML file plus environment variables for secrets.
+GoLivePilot supports two configuration modes:
 
-Non-secret structure belongs in YAML.
-Secrets belong in environment variables, `.env`, Docker secrets, or a future secret store.
+### Single file mode
 
-Example:
+```bash
+golivepilot --config /path/to/golivepilot.yml
+```
+
+### Directory mode (recommended)
+
+```bash
+golivepilot --config-dir configs/local
+```
+
+All `*.yml` files in the directory are loaded in alphabetical order and merged. Later files override earlier ones.
+
+### Config directory layout
+
+```
+configs/
+  .gitignore            # ignores everything except example/
+  example/              # checked-in templates (safe to commit)
+    golivepilot.yml
+    mediamtx.yml
+  local/                # local development (gitignored)
+    golivepilot.yml
+    mediamtx.yml
+  production/           # production deployment (gitignored)
+    golivepilot.yml
+    mediamtx.yml
+```
+
+Only `configs/example/` is tracked in git. All other directories are ignored to prevent accidental commits of secrets.
+
+Create your own environment directory:
+
+```bash
+cp -r configs/example configs/local
+# Edit configs/local/golivepilot.yml with your settings
+golivepilot --config-dir configs/local
+```
+
+### Environment variables
+
+Config values can be overridden with environment variables. Secrets should **only** be set via environment variables, never in YAML files.
+
+```bash
+# Override listen address
+golivepilot --config-dir configs/local --listen :8080
+
+# Set secrets via environment
+export GOLIVEPILOT_OPERATOR_PSK=my-secret-key
+export FB_RTMPS_KEY=FB-xxxxx-0-xxxxx
+golivepilot --config-dir configs/local
+```
+
+### Example config
 
 ```yaml
 app:
   name: "GoLivePilot"
-  public_base_url: "https://stream.example.com"
   listen: ":3000"
   data_dir: "/data"
 
-ui:
-  title: "Live Control"
-  show_advanced: false
-  require_camera: true
-
 auth:
-  mode: "psk"
-  psk_env: "GOLIVEPILOT_PSK"
-  allow_url_token_login: true
+  mode: "psk_cookie"
+  psk_env: "GOLIVEPILOT_OPERATOR_PSK"
 
-media_server:
-  enabled: true
+media_engine:
   type: "mediamtx"
-  api_url: "http://mediamtx:9997"
-  internal_rtmp_base: "rtmp://mediamtx:1935"
-  hls_base_url: "https://stream.example.com/hls"
-
-ingests:
-  - id: "camera"
-    label: "Browser Camera"
-    type: "webrtc"
-    path: "live/camera"
-    internal_source_url: "rtmp://mediamtx:1935/live/camera"
-    preview:
-      type: "hls"
-      url: "https://stream.example.com/hls/live/camera/index.m3u8"
+  mediamtx:
+    api_url: "http://mediamtx:9997"
+    internal_rtmp_base: "rtmp://mediamtx:1935"
+    hls_base_url: "https://stream.example.com/hls"
 
 slate:
-  image: "/assets/starting-soon.png"
-  video_bitrate: "2500k"
-  audio: "silent"
+  enabled: true
+  type: "image"
+  path: "assets/starting-soon.png"
 
-profiles:
-  - id: "x264-720p"
-    label: "720p H.264/AAC"
-    args:
-      - "-fflags"
-      - "+genpts"
-      - "-c:v"
-      - "libx264"
-      - "-preset"
-      - "veryfast"
-      - "-tune"
-      - "zerolatency"
-      - "-pix_fmt"
-      - "yuv420p"
-      - "-b:v"
-      - "3000k"
-      - "-maxrate"
-      - "3000k"
-      - "-bufsize"
-      - "6000k"
-      - "-g"
-      - "60"
-      - "-c:a"
-      - "aac"
-      - "-b:a"
-      - "128k"
-      - "-ar"
-      - "48000"
+ffmpeg:
+  binary: "ffmpeg"
+  log_level: "info"
 
 targets:
   - id: "facebook-main"
     label: "Facebook"
     platform: "facebook"
-    ingest_id: "camera"
-    profile_id: "x264-720p"
     enabled: true
-    rtmps_url_env: "FB_RTMPS_URL"
-    control:
-      live_video_id_env: "FB_LIVE_VIDEO_ID"
-      page_access_token_env: "FB_PAGE_ACCESS_TOKEN"
-      supports_preview: true
-      supports_go_live: true
-      supports_end: true
-
-  - id: "youtube-main"
-    label: "YouTube"
-    platform: "youtube"
-    ingest_id: "camera"
     profile_id: "x264-720p"
-    enabled: true
-    rtmps_url_env: "YT_RTMPS_URL"
-    control:
-      broadcast_id_env: "YT_BROADCAST_ID"
-      access_token_env: "YT_ACCESS_TOKEN"
-      refresh_token_env: "YT_REFRESH_TOKEN"
-      client_id_env: "YT_CLIENT_ID"
-      client_secret_env: "YT_CLIENT_SECRET"
-      supports_preview: true
-      supports_go_live: true
-      supports_end: true
+    rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/"
+    rtmps_key_env: "FB_RTMPS_KEY"
 ```
 
 ---
@@ -648,16 +634,22 @@ Build Linux image with multi-stage Dockerfile.
 Typical commands:
 
 ```bash
-go run ./cmd/golivepilot
+# Create local config
+cp -r configs/example configs/local
+
+# Run with config directory
+go run ./cmd/golivepilot --config-dir configs/local
+
+# Run tests
 go test ./...
+
+# Docker
 docker compose down; docker compose build --no-cache; docker compose up -d; docker compose logs -f
 ```
 
 ---
 
 ## Project Layout
-
-Recommended layout:
 
 ```text
 golivepilot/
@@ -669,7 +661,7 @@ golivepilot/
       runtime.go      # Runtime state management
     config/
       config.go       # Configuration structs
-      load.go         # Config loading and defaults
+      load.go         # Config loading (single file or directory)
       validate.go     # Config validation
     ffmpeg/
       supervisor.go   # FFmpeg process management
@@ -679,8 +671,12 @@ golivepilot/
       facebook/       # Future
       youtube/        # Future
   configs/
-    golivepilot.example.yml
-    mediamtx.yml
+    .gitignore        # ignores everything except example/
+    example/          # checked-in templates
+      golivepilot.yml
+      mediamtx.yml
+    local/            # local development (gitignored)
+    production/       # production deployment (gitignored)
   Dockerfile
   docker-compose.yml
   Makefile
