@@ -9,8 +9,8 @@ type SourceID string
 
 const (
 	SourceUnknown SourceID = ""
-	SourceSlate   SourceID = "slate"
-	SourceCamera  SourceID = "camera"
+	SourceSlate   SourceID = "__slate_source__"
+	SourceCamera  SourceID = "__camera_source__"
 )
 
 // InputConfig defines a source that feeds the StreamSwitch.

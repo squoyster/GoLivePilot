@@ -59,6 +59,8 @@ func NewStreamSwitch(cfg Config) (*StreamSwitch, error) {
 
 // Start starts all input sources and output streams.
 // The first input in the config is selected as the active source.
+// The ctx parameter is only used for startup timeout; subprocess lifetime
+// is managed by the streamswitch's own internal context (stopped via Stop).
 func (ss *StreamSwitch) Start(ctx context.Context) error {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -67,6 +69,9 @@ func (ss *StreamSwitch) Start(ctx context.Context) error {
 		return fmt.Errorf("streamswitch already started")
 	}
 
+	// Create an internal lifecycle context for all subprocesses
+	ss.forwardCtx, ss.stopFunc = context.WithCancel(context.Background())
+
 	ss.logger.Info("starting streamswitch",
 		"inputs", len(ss.inputs),
 		"outputs", len(ss.outputs),
@@ -74,7 +79,8 @@ func (ss *StreamSwitch) Start(ctx context.Context) error {
 
 	// Start FFmpeg subs for each output
 	for _, out := range ss.outputs {
-		if err := out.Start(ctx); err != nil {
+		if err := out.Start(ss.forwardCtx); err != nil {
+			ss.stopFunc()
 			ss.cleanup()
 			return fmt.Errorf("start output %s: %w", out.cfg.TargetID, err)
 		}
@@ -83,6 +89,7 @@ func (ss *StreamSwitch) Start(ctx context.Context) error {
 	// Write FLV headers to all outputs
 	for _, out := range ss.outputs {
 		if err := out.WriteHeader(true, true); err != nil {
+			ss.stopFunc()
 			ss.cleanup()
 			return fmt.Errorf("write header to %s: %w", out.cfg.TargetID, err)
 		}
@@ -90,7 +97,8 @@ func (ss *StreamSwitch) Start(ctx context.Context) error {
 
 	// Start input sources
 	for _, in := range ss.inputs {
-		if err := in.Start(ctx); err != nil {
+		if err := in.Start(ss.forwardCtx); err != nil {
+			ss.stopFunc()
 			ss.cleanup()
 			return fmt.Errorf("start input %s: %w", in.cfg.ID, err)
 		}
@@ -102,7 +110,6 @@ func (ss *StreamSwitch) Start(ctx context.Context) error {
 	}
 
 	// Start the forwarding goroutine
-	ss.forwardCtx, ss.stopFunc = context.WithCancel(context.Background())
 	ss.forwardWg.Add(1)
 	go ss.forwardLoop(ss.forwardCtx)
 
@@ -213,6 +220,16 @@ func (ss *StreamSwitch) Switch(ctx context.Context, target SourceID) error {
 				break
 			}
 		}
+	}
+
+	// Abort switch if the new source has no data — keep the current source active
+	// to avoid starving outputs and dropping downstream connections.
+	if len(gop.Tags) == 0 {
+		ss.logger.Warn("switch aborted: new source has no data",
+			"target", target,
+			"keeping", ss.active,
+		)
+		return fmt.Errorf("input %s has no data", target)
 	}
 
 	// Calculate PTS offset so the new input's first GOP starts at lastPTS + 1
