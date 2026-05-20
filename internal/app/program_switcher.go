@@ -35,8 +35,6 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 	logger := slog.With("target_id", TargetIDProgram, "mode", mode)
 	logger.Info("switching program source")
 
-	// We use an internal path as the stable bus to ensure live/program doesn't disappear.
-	// Internal Source -> live/internal-program -> [Persistent Relay] -> live/program
 	internalPublishURL := s.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/internal-program"
 
 	var input string
@@ -107,8 +105,8 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 	}
 
 	req := ffmpeg.StartRequest{
-		TargetID:   TargetIDProgram,
-		Label:      "Program Source",
+		TargetID:   "__internal_source__",
+		Label:      "Internal Source",
 		Mode:       "source",
 		Binary:     s.cfg.FFmpeg.Binary,
 		LogLevel:   s.cfg.FFmpeg.LogLevel,
@@ -118,26 +116,21 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 		OutputArgs: outputArgs,
 	}
 
-	// Use Switch to allow seamless-ish replacement of the upstream source
-	req.TargetID = "__internal_source__"
-	req.Label = "Internal Source"
 	if err := s.supervisor.Switch(ctx, req); err != nil {
 		logger.Error("failed to switch internal source", "error", err)
 		return err
 	}
 
-	// Wait for internal program source to be ready BEFORE starting/checking persistent relay
-	// This ensures the persistent relay doesn't fail immediately on first start
+	// Wait for internal program source to be ready
 	if s.mtxClient != nil {
 		path := "live/internal-program"
 		slog.Info("switcher: waiting for internal program readiness", "path", path)
-		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 10*time.Second); err != nil {
-			slog.Warn("switcher: internal program not ready yet, proceeding with relay check anyway", "error", err)
+		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 15*time.Second); err != nil {
+			return fmt.Errorf("internal program source %q failed to become ready: %w", path, err)
 		}
 	}
 
-	// Ensure persistent program relay is running to keep live/program alive
-	return s.CheckPersistent(ctx)
+	return nil
 }
 
 func (s *FFmpegProgramSwitcher) CheckPersistent(ctx context.Context) error {

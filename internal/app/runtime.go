@@ -87,16 +87,13 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	r.sourceMode = SourceSlate
 
-	// 1. Switch Program Source to Slate
+	// 1. Switch Internal Source to Slate (and wait for live/internal-program)
 	if err := r.switcher.Switch(ctx, SourceSlate); err != nil {
 		return err
 	}
 
-	// 2. Wait for live/internal-program readiness (the source for the persistent relay)
-	internalProgramPath := "live/internal-program"
-	logger.Info("waiting for internal program source readiness", "path", internalProgramPath)
-	if _, err := r.mtxClient.WaitForPathReady(ctx, internalProgramPath, 15*time.Second); err != nil {
-		logger.Error("internal program source failed to become ready", "error", err)
+	// 2. Ensure Persistent Program Relay is running (live/internal-program -> live/program)
+	if err := r.switcher.CheckPersistent(ctx); err != nil {
 		return err
 	}
 
@@ -110,6 +107,8 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	logger.Info("program source is ready")
 
 	// 4. Start Durable Platform Relays (live/program -> Platform)
+	// We give it a small head start to avoid immediate failure if MediaMTX was JUST ready
+	time.Sleep(1 * time.Second)
 	if err := r.ensurePlatformRelays(ctx); err != nil {
 		return err
 	}
@@ -121,12 +120,6 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 			logger.Info("platform relay PID at Preview", "target_id", id, "pid", s.PID)
 		}
 	}
-
-	// Double check after a few seconds to ensure they didn't fail immediately
-	go func() {
-		time.Sleep(5 * time.Second)
-		_ = r.ensurePlatformRelays(context.Background())
-	}()
 
 	return nil
 }
@@ -266,7 +259,7 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 			}
 
 			logger.Info("waiting for camera source readiness", "path", path)
-			if _, err := r.mtxClient.WaitForPathReady(ctx, path, 5*time.Second); err != nil {
+			if _, err := r.mtxClient.WaitForPathReady(ctx, path, 10*time.Second); err != nil {
 				return fmt.Errorf("camera source %q not ready: %w", path, err)
 			}
 			logger.Info("camera source is ready")
@@ -275,25 +268,24 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 
 	r.sourceMode = SourceCamera
 
-	// 2. Switch Program Source to Camera (Platform relays remain running)
-	logger.Info("program source switching: slate -> camera")
+	// 2. Switch Internal Source to Camera (Platform relays remain running)
+	logger.Info("internal source switching: slate -> camera")
 	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
 		return err
 	}
 
-	// 2.5 Wait for live/internal-program readiness again after switch
-	internalProgramPath := "live/internal-program"
-	if _, err := r.mtxClient.WaitForPathReady(ctx, internalProgramPath, 15*time.Second); err != nil {
-		logger.Error("internal program source failed to become ready after switch", "error", err)
+	// 3. Ensure Persistent Program Relay is running (should already be)
+	if err := r.switcher.CheckPersistent(ctx); err != nil {
+		return err
 	}
 
-	// 3. Wait for live/program readiness again after switch
+	// 4. Wait for live/program readiness again after switch
 	programPath := "live/program"
 	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 15*time.Second); err != nil {
 		logger.Error("program source failed to become ready after switch", "error", err)
 	}
 
-	// 4. Ensure platform relays are running (only if they died during switch)
+	// 5. Ensure platform relays are running (only if they died during switch)
 	logger.Info("ensuring platform relays are healthy after switch")
 	// Small delay to allow platform relays that failed due to the switch to actually exit and be detected as stopped
 	time.Sleep(2 * time.Second)
