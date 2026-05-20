@@ -12,67 +12,196 @@ import (
 	"github.com/squoyster/golivepilot/internal/config"
 	"github.com/squoyster/golivepilot/internal/ffmpeg"
 	"github.com/squoyster/golivepilot/internal/mediamtx"
-)
-
-type RelayState struct {
-	TargetID  string `json:"target_id"`
-	State     string `json:"state"`
-	LastError string `json:"last_error,omitempty"`
-}
-
-type SourceMode string
-
-const (
-	SourceStandby SourceMode = "standby"
-	SourceSlate   SourceMode = "slate"
-	SourceCamera  SourceMode = "camera"
-	SourceEnded   SourceMode = "ended"
-	SourceStopped SourceMode = "stopped"
-)
-
-const (
-	TargetIDProgram = "__program_source__"
+	"github.com/squoyster/golivepilot/internal/streamswitch"
 )
 
 type Runtime struct {
 	cfg        *config.Config
 	started    time.Time
-	relays     map[string]RelayState
 	supervisor RelaySupervisor
-	switcher   ProgramSwitcher
 	pipeline   *Pipeline
-	sourceMode SourceMode
 	mtxClient  *mediamtx.Client
+	switcher   *streamswitch.StreamSwitch
 
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	running  bool
-	attempts map[string]int
+	mu      sync.Mutex
+	ctx     context.Context
+	cancel  context.CancelFunc
+	running bool
+	busMode bool // when true, StreamSwitch handles the program bus
 }
 
-func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
-	mtxClient := mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL)
+// RuntimeOption configures a Runtime.
+type RuntimeOption func(*Runtime)
+
+// WithMediaMTXClient overrides the default MediaMTX client (useful for testing).
+func WithMediaMTXClient(c *mediamtx.Client) RuntimeOption {
+	return func(r *Runtime) {
+		r.mtxClient = c
+	}
+}
+
+func NewRuntime(cfg *config.Config, supervisor RelaySupervisor, opts ...RuntimeOption) *Runtime {
 	rt := &Runtime{
 		cfg:        cfg,
 		started:    time.Now(),
-		relays:     make(map[string]RelayState),
 		supervisor: supervisor,
-		mtxClient:  mtxClient,
-		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor, mtxClient),
-		pipeline:   NewPipeline(cfg, supervisor, mtxClient),
-		sourceMode: SourceStandby,
-		attempts:   make(map[string]int),
 	}
 
-	for _, t := range cfg.Targets {
-		rt.relays[t.ID] = RelayState{
-			TargetID: t.ID,
-			State:    "stopped",
+	for _, opt := range opts {
+		opt(rt)
+	}
+
+	if rt.mtxClient == nil {
+		rt.mtxClient = mediamtx.NewClient(cfg.MediaEngine.MediaMTX.APIURL)
+	}
+
+	rt.pipeline = NewPipeline(cfg, supervisor, rt.mtxClient)
+
+	rt.initStreamSwitch(cfg)
+
+	return rt
+}
+
+// initStreamSwitch creates a StreamSwitch from pipeline config sources and targets.
+func (r *Runtime) initStreamSwitch(cfg *config.Config) {
+	// Build input and output configs from the pipeline nodes
+	var inputs []streamswitch.InputConfig
+	var outputs []streamswitch.OutputConfig
+	foundBus := false
+
+	for _, node := range cfg.Pipeline.Nodes {
+		if node.Kind == "bus" {
+			foundBus = true
+			// Inputs are provided as comma-separated IDs in the input field
+			// We look up their FFmpeg args from the defined nodes
+			for _, sid := range node.SourceIDs {
+				for _, n := range cfg.Pipeline.Nodes {
+					if n.ID == sid {
+						inputs = append(inputs, streamswitch.InputConfig{
+							ID:   streamswitch.SourceID(sid),
+							Args: buildSwitchArgs(&n, cfg),
+						})
+					}
+				}
+			}
+			// Outputs match relay-type nodes that depend on this bus
+			for _, n := range cfg.Pipeline.Nodes {
+				for _, dep := range n.DependsOn {
+					if dep == node.ID && (n.Kind == "relay.rtmp" || n.Kind == "relay.rtmps") {
+						url := resolveNodeOutput(&n, cfg)
+						if url != "" {
+							var encodeArgs []string
+							if n.Kind == "relay.rtmps" {
+								encodeArgs = getTranscodeArgs()
+							}
+							outputs = append(outputs, streamswitch.OutputConfig{
+								TargetID:   n.ID,
+								URL:        url,
+								EncodeArgs: encodeArgs,
+							})
+						}
+					}
+				}
+			}
 		}
 	}
 
-	return rt
+	if !foundBus || len(inputs) == 0 || len(outputs) == 0 {
+		return
+	}
+
+	sw, err := streamswitch.NewStreamSwitch(streamswitch.Config{
+		Inputs:  inputs,
+		Outputs: outputs,
+	})
+	if err != nil {
+		slog.Warn("failed to create stream switch", "error", err)
+		return
+	}
+
+	r.switcher = sw
+	r.busMode = true
+	slog.Info("stream switch initialized",
+		"inputs", len(inputs),
+		"outputs", len(outputs),
+	)
+}
+
+// buildSwitchArgs constructs FFmpeg args for a source node.
+func buildSwitchArgs(node *config.NodeConfig, cfg *config.Config) []string {
+	switch node.Kind {
+	case "source.slate":
+		args := []string{
+			"-re", "-loop", "1", "-framerate", "30", "-i", node.Input,
+		}
+		if cfg.Slate.Audio.Enabled {
+			args = append(args, "-f", "lavfi", "-i",
+				fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=%d", cfg.Slate.Audio.SampleRate))
+		}
+		args = append(args, "-c:v", "libx264", "-preset", "veryfast",
+			"-tune", "stillimage", "-pix_fmt", "yuv420p",
+			"-r", "30", "-g", "60",
+			"-b:v", "2500k", "-maxrate", "2500k", "-bufsize", "5000k",
+			"-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+			"-f", "flv",
+		)
+		return args
+	case "source.rtmp":
+		return []string{
+			"-re", "-i", node.Input,
+			"-c:v", "libx264", "-preset", "veryfast",
+			"-pix_fmt", "yuv420p",
+			"-r", "30", "-g", "60",
+			"-b:v", "2500k", "-maxrate", "2500k", "-bufsize", "5000k",
+			"-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+			"-f", "flv",
+		}
+	default:
+		return nil
+	}
+}
+
+// resolveNodeOutput resolves the output URL for a relay node.
+func resolveNodeOutput(node *config.NodeConfig, cfg *config.Config) string {
+	out := node.Output
+	if node.OutputEnv != "" {
+		val := cfg.GetEnv(node.OutputEnv)
+		if val != "" {
+			out = val
+		} else if strings.HasPrefix(node.OutputEnv, "rtmp://") || strings.HasPrefix(node.OutputEnv, "rtmps://") {
+			out = node.OutputEnv
+		}
+	}
+	if node.OutputKeyEnv != "" {
+		key := cfg.GetEnv(node.OutputKeyEnv)
+		if key == "" {
+			key = node.OutputKeyEnv
+		}
+		if key != "" {
+			out = strings.TrimSuffix(out, "/") + "/" + key
+		}
+	}
+	return out
+}
+
+func getTranscodeArgs() []string {
+	return []string{
+		"-vf", "scale='trunc(iw/2)*2:trunc(ih/2)*2'",
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-tune", "zerolatency",
+		"-pix_fmt", "yuv420p",
+		"-r", "30",
+		"-g", "60",
+		"-b:v", "2500k",
+		"-maxrate", "2500k",
+		"-bufsize", "5000k",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-ar", "48000",
+		"-ac", "2",
+		"-flvflags", "no_duration_filesize",
+	}
 }
 
 // StartBackgroundRestarter starts a background goroutine that monitors and restarts failed relays.
@@ -111,348 +240,89 @@ func (r *Runtime) restarterLoop() {
 }
 
 func (r *Runtime) checkAndRestartRelays() {
-	if r.cfg.Pipeline.Nodes != nil {
-		// Pipeline mode handles its own nodes
-		p := r.pipeline
-		state := p.CurrentState()
-		if state == "standby" || state == "ended" {
-			return
-		}
-
-		// Re-ensure nodes for current state
-		var targetNodeIDs []string
-		for _, s := range r.cfg.Pipeline.States {
-			if s.ID == state {
-				targetNodeIDs = s.Nodes
-				break
-			}
-		}
-
-		started := make(map[string]bool)
-		for _, id := range targetNodeIDs {
-			_ = p.ensureNode(r.ctx, id, started)
-		}
+	state := r.pipeline.CurrentState()
+	if state == "standby" || state == "ended" {
 		return
 	}
 
-	// We only want to restart relays if we are in a state that expects them to be running.
-	if r.sourceMode == SourceStandby || r.sourceMode == SourceStopped {
-		return
-	}
-
-	status := r.supervisor.Status()
-
-	// 1. Check internal source relay
-	if st, ok := status["__internal_source__"]; ok && st.State == ffmpeg.StateFailed {
-		slog.Warn("background restarter: internal source failed, attempting restart", "target_id", "__internal_source__")
-		if err := r.switcher.Switch(r.ctx, r.sourceMode); err != nil {
-			slog.Error("background restarter: failed to restart internal source", "error", err)
+	// Re-ensure nodes for current state
+	var targetNodeIDs []string
+	for _, s := range r.cfg.Pipeline.States {
+		if s.ID == state {
+			targetNodeIDs = s.Nodes
+			break
 		}
 	}
 
-	// 2. Check persistent program relay
-	if st, ok := status[TargetIDProgram]; ok && st.State == ffmpeg.StateFailed {
-		slog.Warn("background restarter: program relay failed, attempting restart", "target_id", TargetIDProgram)
-		if err := r.switcher.CheckPersistent(r.ctx); err != nil {
-			slog.Error("background restarter: failed to restart program relay", "error", err)
-		}
-	}
-
-	// 3. Check platform relays
-	// Only restart platform relays if the program output is ready.
-	programPath := "live/program"
-	pathInfo, err := r.mtxClient.GetPath(r.ctx, programPath)
-	if err != nil || pathInfo == nil || !pathInfo.Ready {
-		return
-	}
-
-	// Re-run ensurePlatformRelays which is idempotent
-	if err := r.ensurePlatformRelays(r.ctx); err != nil {
-		slog.Error("background restarter: failed to ensure platform relays", "error", err)
-	}
-
-	// 4. Also check for missing relays that are enabled but not in the status map yet
-	// ensurePlatformRelays handles this for platform targets,
-	// but we should also check __internal_source__ and TargetIDProgram if they are completely missing
-	if _, ok := status["__internal_source__"]; !ok && r.sourceMode != SourceStandby && r.sourceMode != SourceStopped {
-		slog.Info("background restarter: internal source missing, starting", "target_id", "__internal_source__")
-		_ = r.switcher.Switch(r.ctx, r.sourceMode)
-	}
-	if _, ok := status[TargetIDProgram]; !ok && r.sourceMode != SourceStandby && r.sourceMode != SourceStopped {
-		slog.Info("background restarter: program relay missing, starting", "target_id", TargetIDProgram)
-		_ = r.switcher.CheckPersistent(r.ctx)
+	started := make(map[string]bool)
+	for _, id := range targetNodeIDs {
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_ = r.pipeline.ensureNode(checkCtx, id, started)
+		checkCancel()
 	}
 }
 
 func (r *Runtime) Status() map[string]any {
-	mode := string(r.sourceMode)
-	if r.cfg.Pipeline.Nodes != nil {
-		mode = r.pipeline.CurrentState()
-	}
-
 	status := map[string]any{
 		"status":      "online",
 		"started":     r.started.Format(time.RFC3339),
-		"source_mode": mode,
+		"source_mode": r.pipeline.CurrentState(),
 	}
 
 	if r.supervisor != nil {
 		status["relays"] = r.supervisor.Status()
-	} else {
-		status["relays"] = r.relays
 	}
 
 	return status
 }
 
 func (r *Runtime) StartPreview(ctx context.Context) error {
-	if r.cfg.Pipeline.Nodes != nil {
-		if err := r.pipeline.Transition(ctx, "preview"); err != nil {
+	if r.busMode && r.switcher != nil {
+		if err := r.switcher.Start(ctx); err != nil {
 			return err
 		}
-		r.mu.Lock()
-		r.sourceMode = SourceSlate
-		r.mu.Unlock()
-		return nil
+		if err := r.switcher.Switch(ctx, streamswitch.SourceSlate); err != nil {
+			return err
+		}
 	}
-
-	// Legacy flow below
-	logger := slog.With("mode", "preview")
-	logger.Debug("starting preview")
-
-	r.sourceMode = SourceSlate
-
-	// 1. Switch Internal Source to Slate
-	if err := r.switcher.Switch(ctx, SourceSlate); err != nil {
+	if err := r.pipeline.Transition(ctx, "preview"); err != nil {
 		return err
 	}
-
-	// 2. Ensure Persistent Program Relay is initiated
-	// It might fail immediately if MediaMTX isn't ready, but the background restarter will pick it up.
-	if err := r.switcher.CheckPersistent(ctx); err != nil {
-		logger.Warn("initial program relay start failed; background restarter will retry", "error", err)
-	}
-
-	// 3. Initiate Platform Relays
-	// Again, these might fail if source isn't ready, but restarter handles it.
-	if err := r.ensurePlatformRelays(ctx); err != nil {
-		logger.Warn("initial platform relay start failed; background restarter will retry", "error", err)
-	}
-
-	// Trigger an immediate restarter check to avoid waiting 5 seconds
-	go r.checkAndRestartRelays()
-
 	return nil
 }
 
-func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
-	var firstErr error
-
-	programSource := r.cfg.Program.SourceURL
-	if programSource == "" {
-		programSource = r.cfg.MediaEngine.MediaMTX.InternalRTMPBase + "/live/program"
-	}
-
-	// Get current statuses from supervisor
-	status := r.supervisor.Status()
-
-	for _, t := range r.cfg.Targets {
-		if !t.Enabled {
-			continue
-		}
-
-		tLogger := slog.With("target_id", t.ID, "mode", "platform-relay")
-
-		// Check if already running
-		if st, exists := status[t.ID]; exists && st.State == "running" {
-			tLogger.Info("platform relay already running; leaving intact")
-			continue
-		} else if exists {
-			tLogger.Info("platform relay missing/failed; starting", "last_state", st.State)
-		} else {
-			tLogger.Info("platform relay missing; starting")
-		}
-
-		// Resolve output URL
-		targetURL := os.Getenv(t.RTMPSURLEnv)
-		if targetURL == "" {
-			if strings.HasPrefix(t.RTMPSURLEnv, "rtmp://") || strings.HasPrefix(t.RTMPSURLEnv, "rtmps://") {
-				targetURL = t.RTMPSURLEnv
-			}
-		}
-
-		if targetURL != "" && t.RTMPSKeyEnv != "" {
-			key := os.Getenv(t.RTMPSKeyEnv)
-			if key == "" {
-				key = t.RTMPSKeyEnv
-			}
-			if key != "" {
-				targetURL = strings.TrimSuffix(targetURL, "/") + "/" + key
-			}
-		}
-
-		if targetURL == "" {
-			err := fmt.Errorf("RTMPS URL env var %q is empty", t.RTMPSURLEnv)
-			tLogger.Error("failed to resolve target URL", "error", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-
-		// Platform relay is a simple copy from program to target
-		req := ffmpeg.StartRequest{
-			TargetID:  t.ID,
-			Label:     t.Label,
-			Mode:      "relay",
-			Binary:    r.cfg.FFmpeg.Binary,
-			LogLevel:  r.cfg.FFmpeg.LogLevel,
-			Input:     programSource,
-			Output:    targetURL,
-			InputArgs: []string{"-re", "-i", programSource},
-		}
-
-		if strings.Contains(strings.ToLower(t.Label), "facebook") || strings.Contains(targetURL, "facebook.com") {
-			// Facebook re-encode settings for stability
-			req.OutputArgs = []string{
-				"-c:v", "libx264",
-				"-preset", "veryfast",
-				"-tune", "zerolatency",
-				"-pix_fmt", "yuv420p",
-				"-r", "30",
-				"-g", "60",
-				"-keyint_min", "60",
-				"-sc_threshold", "0",
-				"-b:v", "2500k",
-				"-maxrate", "2500k",
-				"-bufsize", "5000k",
-				"-c:a", "aac",
-				"-b:a", "128k",
-				"-ar", "48000",
-				"-ac", "2",
-				"-flvflags", "no_duration_filesize",
-			}
-		} else {
-			// Default to copy for others if compatible
-			req.OutputArgs = []string{
-				"-c", "copy",
-				"-flvflags", "no_duration_filesize",
-			}
-		}
-
-		tLogger.Info("starting platform relay", "url", targetURL)
-		if err := r.supervisor.Start(ctx, req); err != nil {
-			tLogger.Error("failed to start platform relay", "error", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-
-	return firstErr
-}
-
 func (r *Runtime) StartGoLive(ctx context.Context) error {
-	if r.cfg.Pipeline.Nodes != nil {
-		if err := r.pipeline.Transition(ctx, "live"); err != nil {
+	if r.busMode && r.switcher != nil {
+		if err := r.switcher.Switch(ctx, streamswitch.SourceCamera); err != nil {
 			return err
 		}
-		r.mu.Lock()
-		r.sourceMode = SourceCamera
-		r.mu.Unlock()
-		return nil
 	}
-
-	// Legacy flow below
-	logger := slog.With("mode", "go-live")
-	logger.Info("switching to camera (go-live)")
-
-	r.sourceMode = SourceCamera
-
-	// 1. Switch Internal Source to Camera
-	logger.Info("internal source switching: slate -> camera")
-	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
+	if err := r.pipeline.Transition(ctx, "live"); err != nil {
 		return err
 	}
-
-	// 2. Ensure Persistent Program Relay is running
-	if err := r.switcher.CheckPersistent(ctx); err != nil {
-		logger.Warn("program relay check failed during go-live", "error", err)
-	}
-
-	// 3. Ensure platform relays are healthy
-	if err := r.ensurePlatformRelays(ctx); err != nil {
-		logger.Warn("platform relay check failed during go-live", "error", err)
-	}
-
-	// Trigger an immediate restarter check
-	go r.checkAndRestartRelays()
-
 	return nil
 }
 
 func (r *Runtime) StopAll() {
-	if r.cfg.Pipeline.Nodes != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := r.pipeline.Transition(ctx, "ended"); err != nil {
-			slog.Error("pipeline: failed to transition to ended", "error", err)
-			r.HardStop()
-		}
-		r.mu.Lock()
-		r.sourceMode = SourceEnded
-		r.mu.Unlock()
-		return
+	if r.busMode && r.switcher != nil {
+		r.switcher.Stop()
 	}
-
-	// Legacy flow below
-	slog.Info("stopping all relays - switching to ended slate")
-	r.sourceMode = SourceEnded
-
-	// Instead of stopping everything immediately, we switch to Ended slate.
-	// We'll keep the platform relays running so they pick up the ended image.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
-	if err := r.switcher.Switch(ctx, SourceEnded); err != nil {
-		slog.Error("failed to switch to ended program source", "error", err)
-		// Fallback to hard stop if we can't show ended slate
+	if err := r.pipeline.Transition(ctx, "ended"); err != nil {
+		slog.Error("pipeline: failed to transition to ended", "error", err)
 		r.HardStop()
-		return
 	}
-
-	// Wait a bit for the ended slate to propagate before we actually kill everything?
-	// For now, let's keep it in "ended" state. The user can HardStop if they want to.
-	// Or we can schedule a hard stop.
 }
 
 func (r *Runtime) HardStop() {
-	if r.cfg.Pipeline.Nodes != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := r.pipeline.Transition(ctx, "standby"); err != nil {
-			slog.Error("pipeline: failed to transition to standby", "error", err)
-			// Emergency hard stop
-			if r.supervisor != nil {
-				r.supervisor.StopAll(context.Background())
-			}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.pipeline.Transition(ctx, "standby"); err != nil {
+		slog.Error("pipeline: failed to transition to standby", "error", err)
+		if r.supervisor != nil {
+			r.supervisor.StopAll(context.Background())
 		}
-		r.mu.Lock()
-		r.sourceMode = SourceStandby
-		r.mu.Unlock()
-		return
-	}
-
-	// Legacy flow below
-	slog.Info("hard stopping all relays")
-	r.sourceMode = SourceStopped
-	if r.supervisor != nil {
-		r.supervisor.StopAll(context.Background())
-	}
-	for id := range r.relays {
-		s := r.relays[id]
-		s.State = "stopped"
-		r.relays[id] = s
 	}
 }
 
@@ -545,7 +415,6 @@ func (r *Runtime) DiagFacebook(ctx context.Context, targetID string) ([]string, 
 					return st.Logs, nil
 				}
 			} else {
-				// If it disappeared from supervisor, check last status
 				return nil, fmt.Errorf("diagnostic process disappeared")
 			}
 		}

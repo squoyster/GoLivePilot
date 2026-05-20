@@ -143,6 +143,10 @@ func (p *Pipeline) ensureNode(ctx context.Context, id string, started map[string
 	slog.Info("pipeline: starting node", "node_id", id, "kind", node.Kind)
 
 	switch node.Kind {
+	case "bus":
+		// Bus nodes are managed by the StreamSwitch, not by the Pipeline.
+		// The Pipeline acknowledges them as started so downstream nodes
+		// (relays) can depend on them without waiting for an FFmpeg process.
 	case "service":
 		// External service like MediaMTX. We just check readiness.
 		if id == "mediamtx" {

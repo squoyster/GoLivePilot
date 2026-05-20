@@ -21,6 +21,10 @@ logging:
   level: "info"
   # Log format: text | json
   format: "text"
+  # Optional log file path — logs are tee'd to both stderr and this file.
+  # Agents can inspect this file for diagnostics.
+  # Use an absolute path in production (e.g. /data/golivepilot.log in Docker).
+  file: "golivepilot.log"
 
 ###############################################
 # Operator authentication
