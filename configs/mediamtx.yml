@@ -205,6 +205,11 @@ paths:
     source: publisher
     overridePublisher: true
 
+  # Internal program bus for stable switching.
+  live/internal-program:
+    source: publisher
+    overridePublisher: true
+
   # Optional mirror path.
   live/preview:
     source: publisher

@@ -91,7 +91,15 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		return err
 	}
 
-	// 3. Wait for live/program readiness
+	// 2. Wait for live/internal-program readiness (the source for the persistent relay)
+	internalProgramPath := "live/internal-program"
+	logger.Info("waiting for internal program source readiness", "path", internalProgramPath)
+	if _, err := r.mtxClient.WaitForPathReady(ctx, internalProgramPath, 10*time.Second); err != nil {
+		logger.Error("internal program source failed to become ready", "error", err)
+		return err
+	}
+
+	// 3. Wait for live/program readiness (the output of the persistent relay)
 	programPath := "live/program"
 	logger.Info("waiting for program source readiness", "path", programPath)
 	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 10*time.Second); err != nil {
@@ -270,6 +278,12 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	logger.Info("program source switching: slate -> camera")
 	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
 		return err
+	}
+
+	// 2.5 Wait for live/internal-program readiness again after switch
+	internalProgramPath := "live/internal-program"
+	if _, err := r.mtxClient.WaitForPathReady(ctx, internalProgramPath, 10*time.Second); err != nil {
+		logger.Error("internal program source failed to become ready after switch", "error", err)
 	}
 
 	// 3. Wait for live/program readiness again after switch
