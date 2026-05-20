@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.48] - 2026-05-19
+
+### Added
+- Implemented a "stable program bus" architecture in `ProgramSwitcher` using an internal bridge relay to keep `live/program` continuously available during source switches.
+- Added a "Test Facebook" diagnostic tool in the UI and a new `/api/diag/facebook` endpoint to verify platform connectivity independently of the main broadcast flow.
+- Added explicit PID logging and lifecycle assertions to detect and warn about unintended platform relay restarts.
+
+### Fixed
+- Fixed critical Facebook RTMPS failures during the Preview -> Go Live transition by ensuring the platform relay process is persistent (unchanged PID).
+- Redacted stream keys from all logs and error messages (URLs and FFmpeg commands).
+- Updated Facebook platform relay to use stable re-encode parameters (`libx264`/`aac`) instead of `-c copy` for better ingest compatibility.
+
 ## [0.1.47] - 2026-05-19
 
 ### Fixed
