@@ -105,6 +105,14 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 		return err
 	}
 
+	// Log PIDs for lifecycle tracking
+	status := r.supervisor.Status()
+	for id, s := range status {
+		if s.Mode == "relay" && s.State == "running" {
+			logger.Info("platform relay PID at Preview", "target_id", id, "pid", s.PID)
+		}
+	}
+
 	// Double check after a few seconds to ensure they didn't fail immediately
 	go func() {
 		time.Sleep(5 * time.Second)
@@ -179,10 +187,34 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 			Input:     programSource,
 			Output:    targetURL,
 			InputArgs: []string{"-re", "-i", programSource},
-			OutputArgs: []string{
+		}
+
+		if strings.Contains(strings.ToLower(t.Label), "facebook") || strings.Contains(targetURL, "facebook.com") {
+			// Facebook re-encode settings for stability
+			req.OutputArgs = []string{
+				"-c:v", "libx264",
+				"-preset", "veryfast",
+				"-tune", "zerolatency",
+				"-pix_fmt", "yuv420p",
+				"-r", "30",
+				"-g", "60",
+				"-keyint_min", "60",
+				"-sc_threshold", "0",
+				"-b:v", "2500k",
+				"-maxrate", "2500k",
+				"-bufsize", "5000k",
+				"-c:a", "aac",
+				"-b:a", "128k",
+				"-ar", "48000",
+				"-ac", "2",
+				"-flvflags", "no_duration_filesize",
+			}
+		} else {
+			// Default to copy for others if compatible
+			req.OutputArgs = []string{
 				"-c", "copy",
 				"-flvflags", "no_duration_filesize",
-			},
+			}
 		}
 
 		tLogger.Info("starting platform relay", "url", targetURL)
@@ -200,6 +232,14 @@ func (r *Runtime) ensurePlatformRelays(ctx context.Context) error {
 func (r *Runtime) StartGoLive(ctx context.Context) error {
 	logger := slog.With("mode", "go-live")
 	logger.Info("switching to camera (go-live)")
+
+	// Log existing PIDs before switch
+	statusBefore := r.supervisor.Status()
+	for id, s := range statusBefore {
+		if s.Mode == "relay" && s.State == "running" {
+			logger.Info("platform relay PID before Go Live switch", "target_id", id, "pid", s.PID)
+		}
+	}
 
 	// 1. Verify camera source is ready if it's a MediaMTX path
 	cameraSource := r.cfg.Program.CameraSourceURL
@@ -242,7 +282,20 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	logger.Info("ensuring platform relays are healthy after switch")
 	// Small delay to allow platform relays that failed due to the switch to actually exit and be detected as stopped
 	time.Sleep(2 * time.Second)
-	return r.ensurePlatformRelays(ctx)
+	err := r.ensurePlatformRelays(ctx)
+
+	// Log PIDs after switch for verification
+	statusAfter := r.supervisor.Status()
+	for id, s := range statusAfter {
+		if s.Mode == "relay" && s.State == "running" {
+			logger.Info("platform relay PID after Go Live switch", "target_id", id, "pid", s.PID)
+			if old, ok := statusBefore[id]; ok && old.State == "running" && old.PID != s.PID {
+				logger.Error("LIFECYCLE BUG: platform relay PID changed during Go Live", "target_id", id, "old_pid", old.PID, "new_pid", s.PID)
+			}
+		}
+	}
+
+	return err
 }
 
 func (r *Runtime) StopAll() {
@@ -276,5 +329,101 @@ func (r *Runtime) HardStop() {
 		s := r.relays[id]
 		s.State = "stopped"
 		r.relays[id] = s
+	}
+}
+
+func (r *Runtime) DiagFacebook(ctx context.Context, targetID string) ([]string, error) {
+	logger := slog.With("target_id", targetID, "mode", "diag")
+	logger.Info("starting facebook diagnostic")
+
+	var target *config.TargetConfig
+	for _, t := range r.cfg.Targets {
+		if t.ID == targetID {
+			target = &t
+			break
+		}
+	}
+
+	if target == nil {
+		return nil, fmt.Errorf("target %q not found", targetID)
+	}
+
+	// Resolve output URL
+	targetURL := os.Getenv(target.RTMPSURLEnv)
+	if targetURL == "" {
+		if strings.HasPrefix(target.RTMPSURLEnv, "rtmp") {
+			targetURL = target.RTMPSURLEnv
+		}
+	}
+	if targetURL != "" && target.RTMPSKeyEnv != "" {
+		key := os.Getenv(target.RTMPSKeyEnv)
+		if key == "" {
+			key = target.RTMPSKeyEnv
+		}
+		if key != "" {
+			targetURL = strings.TrimSuffix(targetURL, "/") + "/" + key
+		}
+	}
+
+	if targetURL == "" {
+		return nil, fmt.Errorf("failed to resolve target URL for %q", targetID)
+	}
+
+	// Use slate image as source for test
+	input := r.cfg.Slate.Path
+	if r.cfg.Slate.StartingImage != "" {
+		input = r.cfg.Slate.StartingImage
+	}
+
+	diagID := "__diag_facebook__"
+	req := ffmpeg.StartRequest{
+		TargetID:  diagID,
+		Label:     "Facebook Diagnostic",
+		Mode:      "diag",
+		Binary:    r.cfg.FFmpeg.Binary,
+		LogLevel:  "info",
+		Input:     input,
+		Output:    targetURL,
+		InputArgs: []string{"-re", "-loop", "1", "-framerate", "30", "-i", input},
+		OutputArgs: []string{
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-t", "10", // Run for only 10 seconds
+			"-f", "flv",
+		},
+	}
+
+	if err := r.supervisor.Start(ctx, req); err != nil {
+		return nil, err
+	}
+
+	// Wait for it to finish or timeout
+	timeout := time.After(15 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeout:
+			_ = r.supervisor.Stop(context.Background(), diagID)
+			return nil, fmt.Errorf("diagnostic timed out")
+		case <-ticker.C:
+			status := r.supervisor.Status()
+			if st, ok := status[diagID]; ok {
+				if st.State == "stopped" || st.State == "failed" {
+					if st.State == "failed" {
+						return st.Logs, fmt.Errorf("diagnostic failed: %s", st.LastError)
+					}
+					return st.Logs, nil
+				}
+			} else {
+				// If it disappeared from supervisor, check last status
+				return nil, fmt.Errorf("diagnostic process disappeared")
+			}
+		}
 	}
 }

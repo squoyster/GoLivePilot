@@ -28,6 +28,9 @@ func (m *mockRuntime) StartPreview(ctx context.Context) error {
 func (m *mockRuntime) StartGoLive(ctx context.Context) error { return nil }
 func (m *mockRuntime) StopAll()                              {}
 func (m *mockRuntime) HardStop()                             {}
+func (m *mockRuntime) DiagFacebook(ctx context.Context, targetID string) ([]string, error) {
+	return []string{"test log"}, nil
+}
 
 func TestServer_Status(t *testing.T) {
 	cfg := config.DefaultConfig()

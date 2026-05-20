@@ -71,7 +71,16 @@ func (s *ProcessSupervisor) Start(ctx context.Context, req StartRequest) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("supervisor: final ffmpeg args", "binary", req.Binary, "args", strings.Join(args, " "))
+
+	// Redact keys in logs
+	redactedArgs := make([]string, len(args))
+	copy(redactedArgs, args)
+	for i, arg := range redactedArgs {
+		if strings.HasPrefix(arg, "rtmp") {
+			redactedArgs[i] = RedactURL(arg)
+		}
+	}
+	slog.Info("supervisor: final ffmpeg args", "binary", req.Binary, "args", strings.Join(redactedArgs, " "))
 
 	procCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, req.Binary, args...)
@@ -230,7 +239,7 @@ func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 
 	// Update status
 	if err != nil {
-		rp.status.LastError = err.Error()
+		rp.status.LastError = RedactURL(err.Error())
 		rp.status.State = StateFailed
 	} else {
 		rp.status.State = StateStopped
@@ -247,4 +256,17 @@ func (s *ProcessSupervisor) wait(targetID string, rp *relayProcess) {
 
 	// Always remove from active relays map once it has exited
 	delete(s.relays, targetID)
+}
+
+func RedactURL(u string) string {
+	if !strings.Contains(u, "rtmp") {
+		return u
+	}
+	// Redact after /rtmp/ or after the last slash
+	if idx := strings.LastIndex(u, "/"); idx != -1 {
+		// FB keys are often preceded by /rtmp/
+		// We want to keep everything up to the last slash (excluding it if it's the very end)
+		return u[:idx+1] + "****"
+	}
+	return u
 }

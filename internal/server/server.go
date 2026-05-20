@@ -19,6 +19,7 @@ type Runtime interface {
 	StartGoLive(ctx context.Context) error
 	StopAll()
 	HardStop()
+	DiagFacebook(ctx context.Context, targetID string) ([]string, error)
 }
 
 type Server struct {
@@ -48,6 +49,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/preview", s.withAuth(s.handlePreview))
 	mux.HandleFunc("POST /api/go-live", s.withAuth(s.handleGoLive))
 	mux.HandleFunc("POST /api/stop", s.withAuth(s.handleStop))
+	mux.HandleFunc("POST /api/diag/facebook", s.withAuth(s.handleDiagFacebook))
 
 	return requestLog(mux)
 }
@@ -154,6 +156,29 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"action": "stop",
+	})
+}
+
+func (s *Server) handleDiagFacebook(w http.ResponseWriter, r *http.Request) {
+	logger := slog.With("method", "POST", "path", "/api/diag/facebook")
+	logger.Info("api call")
+	targetID := r.URL.Query().Get("target_id")
+	if targetID == "" {
+		targetID = "facebook-main"
+	}
+
+	logs, err := s.runtime.DiagFacebook(r.Context(), targetID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+			"logs":  logs,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"logs": logs,
 	})
 }
 
@@ -303,6 +328,7 @@ func parseTemplates() *template.Template {
       <button class="live" onclick="post('/api/go-live')">Go Live</button>
       <button class="stop" id="btn-stop" onclick="post('/api/stop')">Stop Stream</button>
       <button class="reset" id="btn-reset" onclick="post('/api/stop?hard=true')">Reset Everything</button>
+      <button class="diag" id="btn-diag-fb" onclick="diagFacebook()" style="background-color: #6366f1; color: white;">Test Facebook</button>
     </div>
   </div>
 
@@ -481,6 +507,27 @@ statusManager.subscribe((status) => {
 async function refresh() {
   const result = await api("/api/status");
   statusManager.update(result);
+}
+
+async function diagFacebook() {
+  const btn = document.getElementById("btn-diag-fb");
+  const originalText = btn.textContent;
+  btn.textContent = "Testing...";
+  btn.disabled = true;
+  
+  try {
+    const res = await api("/api/diag/facebook", "POST");
+    if (res.ok) {
+      alert("Facebook Diagnostic PASSED!\n\nLogs:\n" + (res.logs || []).join("\n"));
+    } else {
+      alert("Facebook Diagnostic FAILED!\n\nError: " + res.error + "\n\nLogs:\n" + (res.logs || []).join("\n"));
+    }
+  } catch (e) {
+    alert("Request failed: " + e);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
 }
 
 setInterval(refresh, 2000);

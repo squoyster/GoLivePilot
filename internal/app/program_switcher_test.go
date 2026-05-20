@@ -17,6 +17,10 @@ func (m *mockProgramSwitcher) Switch(ctx context.Context, mode SourceMode) error
 	return m.err
 }
 
+func (m *mockProgramSwitcher) CheckPersistent(ctx context.Context) error {
+	return nil
+}
+
 func TestFFmpegProgramSwitcher_Switch(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Slate.Enabled = true
