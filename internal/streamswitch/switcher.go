@@ -14,9 +14,10 @@ type StreamSwitch struct {
 	cfg     Config
 	logger  *slog.Logger
 
-	inputs  map[SourceID]*InputSource
-	outputs []*OutputStream
-	active  SourceID
+	inputs       map[SourceID]*InputSource
+	outputs      []*OutputStream
+	active       SourceID
+	lastGOPSeq   map[SourceID]uint64 // Last sent GOP seq per input
 
 	mu         sync.RWMutex
 	started    bool
@@ -38,10 +39,11 @@ func NewStreamSwitch(cfg Config) (*StreamSwitch, error) {
 	}
 
 	ss := &StreamSwitch{
-		cfg:    cfg,
-		logger: slog.With("component", "streamswitch"),
-		inputs: make(map[SourceID]*InputSource),
-		active: SourceUnknown,
+		cfg:        cfg,
+		logger:     slog.With("component", "streamswitch"),
+		inputs:     make(map[SourceID]*InputSource),
+		active:     SourceUnknown,
+		lastGOPSeq: make(map[SourceID]uint64),
 	}
 
 	for _, ic := range cfg.Inputs {
@@ -143,8 +145,16 @@ func (ss *StreamSwitch) forwardTick() {
 		return
 	}
 
-	gop := in.CurrentGOP()
+	gop, seq := in.CurrentGOP()
 	if len(gop.Tags) == 0 {
+		return
+	}
+
+	// Only forward if this is a new GOP we haven't sent before
+	ss.mu.RLock()
+	lastSeq := ss.lastGOPSeq[active]
+	ss.mu.RUnlock()
+	if seq <= lastSeq {
 		return
 	}
 
@@ -154,6 +164,10 @@ func (ss *StreamSwitch) forwardTick() {
 			ss.logger.Warn("write gop failed", "target", out.cfg.TargetID, "error", err)
 		}
 	}
+
+	ss.mu.Lock()
+	ss.lastGOPSeq[active] = seq
+	ss.mu.Unlock()
 }
 
 // Switch selects the active input source. All outputs seamlessly transition
@@ -184,7 +198,7 @@ func (ss *StreamSwitch) Switch(ctx context.Context, target SourceID) error {
 	}
 
 	// Get a GOP from the new input to ensure it has data
-	gop := newIn.CurrentGOP()
+	gop, _ := newIn.CurrentGOP()
 	if len(gop.Tags) == 0 {
 		// Wait briefly for the new input to produce a GOP
 		for i := 0; i < 50; i++ { // ~2.5 seconds total
@@ -194,7 +208,7 @@ func (ss *StreamSwitch) Switch(ctx context.Context, target SourceID) error {
 			default:
 			}
 			time.Sleep(50 * time.Millisecond)
-			gop = newIn.CurrentGOP()
+			gop, _ = newIn.CurrentGOP()
 			if len(gop.Tags) > 0 {
 				break
 			}

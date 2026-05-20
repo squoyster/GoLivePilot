@@ -30,6 +30,7 @@ type InputSource struct {
 	seqHeaderAVC  []byte // AVC sequence header (SPS/PPS)
 	hasAudio      bool
 	hasVideo      bool
+	gopSeq        uint64 // Incremented each time a new GOP is stored
 }
 
 // NewInputSource creates a new input source.
@@ -169,6 +170,7 @@ func (in *InputSource) processTag(tag *FLVTag) {
 			HasAudio: in.hasAudio,
 			HasVideo: in.hasVideo,
 		}
+		in.gopSeq++
 		if len(in.activeGOP) > 0 && in.activeGOP[len(in.activeGOP)-1].Timestamp > 0 {
 			in.gop.LastPTS = in.activeGOP[len(in.activeGOP)-1].Timestamp
 		}
@@ -192,9 +194,10 @@ func (in *InputSource) processTag(tag *FLVTag) {
 	}
 }
 
-// CurrentGOP returns a copy of the last complete GOP buffer.
-// This is safe for concurrent access.
-func (in *InputSource) CurrentGOP() GOPBuffer {
+// CurrentGOP returns a copy of the last complete GOP buffer and its sequence number.
+// Returns the GOP and its sequence number. Callers should track the sequence to
+// avoid sending the same GOP multiple times.
+func (in *InputSource) CurrentGOP() (GOPBuffer, uint64) {
 	in.mu.RLock()
 	defer in.mu.RUnlock()
 	return GOPBuffer{
@@ -202,7 +205,7 @@ func (in *InputSource) CurrentGOP() GOPBuffer {
 		LastPTS:  in.gop.LastPTS,
 		HasAudio: in.gop.HasAudio,
 		HasVideo: in.gop.HasVideo,
-	}
+	}, in.gopSeq
 }
 
 // SeqHeaders returns copies of the codec sequence headers.
