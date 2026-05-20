@@ -88,7 +88,14 @@ func (r *Runtime) StartBackgroundRestarter(ctx context.Context) {
 }
 
 func (r *Runtime) restarterLoop() {
-	ticker := time.NewTicker(5 * time.Second)
+	interval := 5 * time.Second
+	if r.cfg.Behavior.RestarterInterval != "" {
+		if d, err := time.ParseDuration(r.cfg.Behavior.RestarterInterval); err == nil {
+			interval = d
+		}
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -109,7 +116,15 @@ func (r *Runtime) checkAndRestartRelays() {
 
 	status := r.supervisor.Status()
 
-	// 1. Check persistent program relay
+	// 1. Check internal source relay
+	if st, ok := status["__internal_source__"]; ok && st.State == ffmpeg.StateFailed {
+		slog.Warn("background restarter: internal source failed, attempting restart", "target_id", "__internal_source__")
+		if err := r.switcher.Switch(r.ctx, r.sourceMode); err != nil {
+			slog.Error("background restarter: failed to restart internal source", "error", err)
+		}
+	}
+
+	// 2. Check persistent program relay
 	if st, ok := status[TargetIDProgram]; ok && st.State == ffmpeg.StateFailed {
 		slog.Warn("background restarter: program relay failed, attempting restart", "target_id", TargetIDProgram)
 		if err := r.switcher.CheckPersistent(r.ctx); err != nil {
@@ -117,7 +132,7 @@ func (r *Runtime) checkAndRestartRelays() {
 		}
 	}
 
-	// 2. Check platform relays
+	// 3. Check platform relays
 	// Only restart platform relays if the program output is ready.
 	programPath := "live/program"
 	pathInfo, err := r.mtxClient.GetPath(r.ctx, programPath)
@@ -128,6 +143,18 @@ func (r *Runtime) checkAndRestartRelays() {
 	// Re-run ensurePlatformRelays which is idempotent
 	if err := r.ensurePlatformRelays(r.ctx); err != nil {
 		slog.Error("background restarter: failed to ensure platform relays", "error", err)
+	}
+
+	// 4. Also check for missing relays that are enabled but not in the status map yet
+	// ensurePlatformRelays handles this for platform targets,
+	// but we should also check __internal_source__ and TargetIDProgram if they are completely missing
+	if _, ok := status["__internal_source__"]; !ok && r.sourceMode != SourceStandby && r.sourceMode != SourceStopped {
+		slog.Info("background restarter: internal source missing, starting", "target_id", "__internal_source__")
+		_ = r.switcher.Switch(r.ctx, r.sourceMode)
+	}
+	if _, ok := status[TargetIDProgram]; !ok && r.sourceMode != SourceStandby && r.sourceMode != SourceStopped {
+		slog.Info("background restarter: program relay missing, starting", "target_id", TargetIDProgram)
+		_ = r.switcher.CheckPersistent(r.ctx)
 	}
 }
 
@@ -169,6 +196,9 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 	if err := r.ensurePlatformRelays(ctx); err != nil {
 		logger.Warn("initial platform relay start failed; background restarter will retry", "error", err)
 	}
+
+	// Trigger an immediate restarter check to avoid waiting 5 seconds
+	go r.checkAndRestartRelays()
 
 	return nil
 }
@@ -301,6 +331,9 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	if err := r.ensurePlatformRelays(ctx); err != nil {
 		logger.Warn("platform relay check failed during go-live", "error", err)
 	}
+
+	// Trigger an immediate restarter check
+	go r.checkAndRestartRelays()
 
 	return nil
 }

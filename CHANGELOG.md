@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.58] - 2026-05-19
+
+### Added
+- Added a configurable `restarter_interval` in the `behavior` section of `golivepilot.yml` to control the frequency of background relay health checks.
+
+### Changed
+- Refactored `Runtime.restarterLoop` to use the configured `RestarterInterval` instead of a hardcoded 5-second interval.
+- Synchronized `golivepilot.yml` and `golivepilot.example.yml` with sane default values for the background restarter.
+
+## [0.1.57] - 2026-05-19
+
+### Fixed
+- Improved background restarter resilience by ensuring it aggressively recovers the internal source and program relays even if the `live/program` path is not yet ready.
+- Fixed a bug where missing internal relays were not being automatically started by the background loop.
+- Added immediate restarter triggers after starting "Preview" or "Go Live" to minimize recovery latency for failed components.
+
 ## [0.1.56] - 2026-05-19
 
 ### Changed

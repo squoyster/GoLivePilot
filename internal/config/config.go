@@ -195,6 +195,7 @@ type BehaviorConfig struct {
 	StopOrder                 string `json:"stop_order" yaml:"stop_order"`
 	ReconnectTargetsWhileLive bool   `json:"reconnect_targets_while_live" yaml:"reconnect_targets_while_live"`
 	SourceLossPolicy          string `json:"source_loss_policy" yaml:"source_loss_policy"`
+	RestarterInterval         string `json:"restarter_interval" yaml:"restarter_interval"`
 }
 
 var RelevantEnvVars = []EnvVarHelp{

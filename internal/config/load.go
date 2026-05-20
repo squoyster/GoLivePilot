@@ -98,4 +98,7 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.FFmpeg.LogLevel == "" {
 		cfg.FFmpeg.LogLevel = "info"
 	}
+	if cfg.Behavior.RestarterInterval == "" {
+		cfg.Behavior.RestarterInterval = "5s"
+	}
 }

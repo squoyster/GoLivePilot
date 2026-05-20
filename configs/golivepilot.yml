@@ -468,3 +468,6 @@ behavior:
 
   # If source drops while live, keep retrying target source read until stop.
   source_loss_policy: "retry" # retry | stop | slate
+
+  # Interval for the background restarter to check for failed relays.
+  restarter_interval: "5s"
