@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.45] - 2026-05-19
+
+### Fixed
+- Fixed an issue where `__program_source__` and platform relays could fail with "Invalid argument" due to duplicate output URLs in the FFmpeg command.
+- Refactored `BuildArgs` to handle output parameters more robustly and avoid parameter duplication.
+
 ## [0.1.44] - 2026-05-19
 
 ### Added

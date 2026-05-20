@@ -79,7 +79,9 @@ func BuildArgs(req StartRequest) ([]string, error) {
 		args = append(args, "-f", "flv")
 	}
 
-	args = append(args, req.Output)
+	if req.Output != "" {
+		args = append(args, req.Output)
+	}
 
 	return args, nil
 }

@@ -106,7 +106,7 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 		Input:      input,
 		Output:     publishURL,
 		InputArgs:  inputArgs,
-		OutputArgs: append(outputArgs, "-f", "flv", publishURL),
+		OutputArgs: outputArgs,
 	}
 
 	// Use Switch to allow seamless-ish replacement if supported by supervisor
