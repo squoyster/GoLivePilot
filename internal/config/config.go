@@ -39,6 +39,7 @@ type AppConfig struct {
 type LoggingConfig struct {
 	Level  string `json:"level" yaml:"level"`
 	Format string `json:"format" yaml:"format"` // "text" or "json"
+	File   string `json:"file" yaml:"file"`     // optional log file path (tee)
 }
 
 type AuthConfig struct {

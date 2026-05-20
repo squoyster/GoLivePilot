@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -41,7 +42,8 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "\nFor more information on environment variables, use --env-help\n")
 	}
 
-	configPath := flag.String("config", env("GOLIVEPILOT_CONFIG", "/config/golivepilot.yml"), "path to config file")
+	configPath := flag.String("config", env("GOLIVEPILOT_CONFIG", ""), "path to a single config file")
+	configDir := flag.String("config-dir", env("GOLIVEPILOT_CONFIG_DIR", ""), "path to a config directory (loads all *.yml files)")
 	listenOverride := flag.String("listen", "", "override listen address")
 	envHelp := flag.Bool("env-help", false, "show relevant environment variables and exit")
 	flag.Parse()
@@ -51,7 +53,16 @@ func run() error {
 		return nil
 	}
 
-	cfg, err := config.LoadConfig(*configPath)
+	var cfg *config.Config
+	var err error
+
+	if *configPath != "" {
+		cfg, err = config.LoadConfig(*configPath)
+	} else if *configDir != "" {
+		cfg, err = config.LoadConfigDir(*configDir)
+	} else {
+		cfg = config.DefaultConfig()
+	}
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -136,7 +147,6 @@ func setupLogging(cfg config.LoggingConfig) {
 			if a.Key == slog.SourceKey {
 				source, ok := a.Value.Any().(*slog.Source)
 				if ok {
-					// Ensure we use forward slashes for cross-platform consistency in logs
 					path := filepath.ToSlash(source.File)
 					parts := strings.Split(path, "/")
 					if len(parts) >= 2 {
@@ -149,12 +159,22 @@ func setupLogging(cfg config.LoggingConfig) {
 			return a
 		},
 	}
-	var handler slog.Handler
 
+	var out io.Writer = os.Stderr
+	if cfg.File != "" {
+		f, err := os.OpenFile(cfg.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Printf("warning: cannot open log file %s: %v", cfg.File, err)
+		} else {
+			out = io.MultiWriter(os.Stderr, f)
+		}
+	}
+
+	var handler slog.Handler
 	if strings.ToLower(cfg.Format) == "json" {
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		handler = slog.NewJSONHandler(out, opts)
 	} else {
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		handler = slog.NewTextHandler(out, opts)
 	}
 
 	slog.SetDefault(slog.New(handler))
