@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.56] - 2026-05-19
+
+### Changed
+- Refactored `Runtime` and `ProgramSwitcher` to be less sensitive to immediate MediaMTX readiness.
+- Removed blocking readiness gates from `StartPreview` and `Switch`, relying instead on the background restarter for "eventual consistency" of the stream.
+- Replaced strict timeouts with asynchronous retries (via the background restarter) to handle slow startup latencies without failing the entire operation.
+
+## [0.1.55] - 2026-05-19
+
+### Fixed
+- Fixed an "Invalid argument" (exit status 187) FFmpeg error when using assets with odd dimensions (e.g., `stream-ended.png`).
+- Added a scaling filter (`trunc(iw/2)*2`) to all program source transcoding to ensure output dimensions are always even, satisfying `libx264`/`yuv420p` requirements.
+
+## [0.1.54] - 2026-05-19
+
+### Added
+- Implemented an automatic background restarter in `Runtime` that monitors and retries failed relays (internal and platform) every 5 seconds.
+- Integrated the restarter with the application lifecycle in `main.go`.
+
 ## [0.1.53] - 2026-05-19
 
 ### Fixed

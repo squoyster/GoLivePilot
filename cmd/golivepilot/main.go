@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	version = "0.1.53"
+	version = "0.1.56"
 )
 
 func main() {
@@ -83,6 +83,8 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	runtime.StartBackgroundRestarter(ctx)
 
 	errCh := make(chan error, 1)
 
