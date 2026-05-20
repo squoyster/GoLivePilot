@@ -131,7 +131,7 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 	if s.mtxClient != nil {
 		path := "live/internal-program"
 		slog.Info("switcher: waiting for internal program readiness", "path", path)
-		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 5*time.Second); err != nil {
+		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 10*time.Second); err != nil {
 			slog.Warn("switcher: internal program not ready yet, proceeding with relay check anyway", "error", err)
 		}
 	}
@@ -167,7 +167,19 @@ func (s *FFmpegProgramSwitcher) CheckPersistent(ctx context.Context) error {
 			"-i", internalSourceURL,
 		},
 		OutputArgs: []string{
-			"-c", "copy",
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-r", "30",
+			"-g", "60",
+			"-b:v", "2500k",
+			"-maxrate", "2500k",
+			"-bufsize", "5000k",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-ar", "48000",
+			"-ac", "2",
 			"-flvflags", "no_duration_filesize",
 		},
 	}

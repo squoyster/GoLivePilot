@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.52] - 2026-05-19
+
+### Fixed
+- Fixed critical "Input/output error" and readiness timeouts in the program switcher by switching the bridge relay to explicit transcoding.
+- Increased readiness timeouts for both internal bridge and public program paths to 15 seconds to handle MediaMTX startup latencies.
+- Improved stream stability across source transitions by ensuring a normalized H.264/AAC feed is always available on the stable program bus.
+
 ## [0.1.51] - 2026-05-19
 
 ### Fixed
