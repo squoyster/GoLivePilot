@@ -164,9 +164,6 @@ func (s *FFmpegProgramSwitcher) CheckPersistent(ctx context.Context) error {
 		Input:    internalSourceURL,
 		Output:   publishURL,
 		InputArgs: []string{
-			"-reconnect", "1",
-			"-reconnect_streamed", "1",
-			"-reconnect_delay_max", "2",
 			"-i", internalSourceURL,
 		},
 		OutputArgs: []string{
