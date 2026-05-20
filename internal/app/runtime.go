@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/squoyster/golivepilot/internal/config"
@@ -41,6 +42,12 @@ type Runtime struct {
 	switcher   ProgramSwitcher
 	sourceMode SourceMode
 	mtxClient  *mediamtx.Client
+
+	mu       sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	running  bool
+	attempts map[string]int
 }
 
 func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
@@ -53,6 +60,7 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 		mtxClient:  mtxClient,
 		switcher:   NewFFmpegProgramSwitcher(cfg, supervisor, mtxClient),
 		sourceMode: SourceStandby,
+		attempts:   make(map[string]int),
 	}
 
 	for _, t := range cfg.Targets {
@@ -63,6 +71,64 @@ func NewRuntime(cfg *config.Config, supervisor RelaySupervisor) *Runtime {
 	}
 
 	return rt
+}
+
+// StartBackgroundRestarter starts a background goroutine that monitors and restarts failed relays.
+func (r *Runtime) StartBackgroundRestarter(ctx context.Context) {
+	r.mu.Lock()
+	if r.running {
+		r.mu.Unlock()
+		return
+	}
+	r.ctx, r.cancel = context.WithCancel(ctx)
+	r.running = true
+	r.mu.Unlock()
+
+	go r.restarterLoop()
+}
+
+func (r *Runtime) restarterLoop() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.checkAndRestartRelays()
+		}
+	}
+}
+
+func (r *Runtime) checkAndRestartRelays() {
+	// We only want to restart relays if we are in a state that expects them to be running.
+	if r.sourceMode == SourceStandby || r.sourceMode == SourceStopped {
+		return
+	}
+
+	status := r.supervisor.Status()
+
+	// 1. Check persistent program relay
+	if st, ok := status[TargetIDProgram]; ok && st.State == ffmpeg.StateFailed {
+		slog.Warn("background restarter: program relay failed, attempting restart", "target_id", TargetIDProgram)
+		if err := r.switcher.CheckPersistent(r.ctx); err != nil {
+			slog.Error("background restarter: failed to restart program relay", "error", err)
+		}
+	}
+
+	// 2. Check platform relays
+	// Only restart platform relays if the program output is ready.
+	programPath := "live/program"
+	pathInfo, err := r.mtxClient.GetPath(r.ctx, programPath)
+	if err != nil || pathInfo == nil || !pathInfo.Ready {
+		return
+	}
+
+	// Re-run ensurePlatformRelays which is idempotent
+	if err := r.ensurePlatformRelays(r.ctx); err != nil {
+		slog.Error("background restarter: failed to ensure platform relays", "error", err)
+	}
 }
 
 func (r *Runtime) Status() map[string]any {
@@ -87,38 +153,21 @@ func (r *Runtime) StartPreview(ctx context.Context) error {
 
 	r.sourceMode = SourceSlate
 
-	// 1. Switch Internal Source to Slate (and wait for live/internal-program)
+	// 1. Switch Internal Source to Slate
 	if err := r.switcher.Switch(ctx, SourceSlate); err != nil {
 		return err
 	}
 
-	// 2. Ensure Persistent Program Relay is running (live/internal-program -> live/program)
+	// 2. Ensure Persistent Program Relay is initiated
+	// It might fail immediately if MediaMTX isn't ready, but the background restarter will pick it up.
 	if err := r.switcher.CheckPersistent(ctx); err != nil {
-		return err
+		logger.Warn("initial program relay start failed; background restarter will retry", "error", err)
 	}
 
-	// 3. Wait for live/program readiness (the output of the persistent relay)
-	programPath := "live/program"
-	logger.Info("waiting for program source readiness", "path", programPath)
-	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 15*time.Second); err != nil {
-		logger.Error("program source failed to become ready", "error", err)
-		return err
-	}
-	logger.Info("program source is ready")
-
-	// 4. Start Durable Platform Relays (live/program -> Platform)
-	// We give it a small head start to avoid immediate failure if MediaMTX was JUST ready
-	time.Sleep(1 * time.Second)
+	// 3. Initiate Platform Relays
+	// Again, these might fail if source isn't ready, but restarter handles it.
 	if err := r.ensurePlatformRelays(ctx); err != nil {
-		return err
-	}
-
-	// Log PIDs for lifecycle tracking
-	status := r.supervisor.Status()
-	for id, s := range status {
-		if s.Mode == "relay" && s.State == "running" {
-			logger.Info("platform relay PID at Preview", "target_id", id, "pid", s.PID)
-		}
+		logger.Warn("initial platform relay start failed; background restarter will retry", "error", err)
 	}
 
 	return nil
@@ -235,74 +284,25 @@ func (r *Runtime) StartGoLive(ctx context.Context) error {
 	logger := slog.With("mode", "go-live")
 	logger.Info("switching to camera (go-live)")
 
-	// Log existing PIDs before switch
-	statusBefore := r.supervisor.Status()
-	for id, s := range statusBefore {
-		if s.Mode == "relay" && s.State == "running" {
-			logger.Info("platform relay PID before Go Live switch", "target_id", id, "pid", s.PID)
-		}
-	}
-
-	// 1. Verify camera source is ready if it's a MediaMTX path
-	cameraSource := r.cfg.Program.CameraSourceURL
-	if cameraSource == "" {
-		cameraSource = r.cfg.UI.CameraSourceURL
-	}
-	if strings.Contains(cameraSource, r.cfg.MediaEngine.MediaMTX.InternalRTMPBase) {
-		// It's a local MediaMTX path, try to wait for it
-		parts := strings.Split(cameraSource, "/")
-		if len(parts) > 0 {
-			path := parts[len(parts)-1]
-			// If it's live/camera, parts might be [... "live", "camera"]
-			if strings.Contains(cameraSource, "/live/") {
-				path = "live/" + path
-			}
-
-			logger.Info("waiting for camera source readiness", "path", path)
-			if _, err := r.mtxClient.WaitForPathReady(ctx, path, 10*time.Second); err != nil {
-				return fmt.Errorf("camera source %q not ready: %w", path, err)
-			}
-			logger.Info("camera source is ready")
-		}
-	}
-
 	r.sourceMode = SourceCamera
 
-	// 2. Switch Internal Source to Camera (Platform relays remain running)
+	// 1. Switch Internal Source to Camera
 	logger.Info("internal source switching: slate -> camera")
 	if err := r.switcher.Switch(ctx, SourceCamera); err != nil {
 		return err
 	}
 
-	// 3. Ensure Persistent Program Relay is running (should already be)
+	// 2. Ensure Persistent Program Relay is running
 	if err := r.switcher.CheckPersistent(ctx); err != nil {
-		return err
+		logger.Warn("program relay check failed during go-live", "error", err)
 	}
 
-	// 4. Wait for live/program readiness again after switch
-	programPath := "live/program"
-	if _, err := r.mtxClient.WaitForPathReady(ctx, programPath, 15*time.Second); err != nil {
-		logger.Error("program source failed to become ready after switch", "error", err)
+	// 3. Ensure platform relays are healthy
+	if err := r.ensurePlatformRelays(ctx); err != nil {
+		logger.Warn("platform relay check failed during go-live", "error", err)
 	}
 
-	// 5. Ensure platform relays are running (only if they died during switch)
-	logger.Info("ensuring platform relays are healthy after switch")
-	// Small delay to allow platform relays that failed due to the switch to actually exit and be detected as stopped
-	time.Sleep(2 * time.Second)
-	err := r.ensurePlatformRelays(ctx)
-
-	// Log PIDs after switch for verification
-	statusAfter := r.supervisor.Status()
-	for id, s := range statusAfter {
-		if s.Mode == "relay" && s.State == "running" {
-			logger.Info("platform relay PID after Go Live switch", "target_id", id, "pid", s.PID)
-			if old, ok := statusBefore[id]; ok && old.State == "running" && old.PID != s.PID {
-				logger.Error("LIFECYCLE BUG: platform relay PID changed during Go Live", "target_id", id, "old_pid", old.PID, "new_pid", s.PID)
-			}
-		}
-	}
-
-	return err
+	return nil
 }
 
 func (r *Runtime) StopAll() {

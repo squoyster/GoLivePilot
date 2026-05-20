@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/squoyster/golivepilot/internal/config"
 	"github.com/squoyster/golivepilot/internal/ffmpeg"
@@ -116,18 +115,10 @@ func (s *FFmpegProgramSwitcher) Switch(ctx context.Context, mode SourceMode) err
 		OutputArgs: outputArgs,
 	}
 
+	// Start internal source
 	if err := s.supervisor.Switch(ctx, req); err != nil {
 		logger.Error("failed to switch internal source", "error", err)
 		return err
-	}
-
-	// Wait for internal program source to be ready
-	if s.mtxClient != nil {
-		path := "live/internal-program"
-		slog.Info("switcher: waiting for internal program readiness", "path", path)
-		if _, err := s.mtxClient.WaitForPathReady(ctx, path, 15*time.Second); err != nil {
-			return fmt.Errorf("internal program source %q failed to become ready: %w", path, err)
-		}
 	}
 
 	return nil
@@ -160,6 +151,7 @@ func (s *FFmpegProgramSwitcher) CheckPersistent(ctx context.Context) error {
 			"-i", internalSourceURL,
 		},
 		OutputArgs: []string{
+			"-vf", "scale='trunc(iw/2)*2:trunc(ih/2)*2'",
 			"-c:v", "libx264",
 			"-preset", "veryfast",
 			"-tune", "zerolatency",
@@ -182,6 +174,7 @@ func (s *FFmpegProgramSwitcher) CheckPersistent(ctx context.Context) error {
 
 func getTranscodeArgs() []string {
 	return []string{
+		"-vf", "scale='trunc(iw/2)*2:trunc(ih/2)*2'",
 		"-c:v", "libx264",
 		"-preset", "veryfast",
 		"-tune", "zerolatency",
