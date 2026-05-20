@@ -1,5 +1,9 @@
 package config
 
+import (
+	"os"
+)
+
 type EnvVarHelp struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
@@ -21,6 +25,7 @@ type Config struct {
 	Targets     []TargetConfig    `json:"targets" yaml:"targets"`
 	Runtime     RuntimeConfig     `json:"runtime" yaml:"runtime"`
 	Behavior    BehaviorConfig    `json:"behavior" yaml:"behavior"`
+	Pipeline    PipelineConfig    `json:"pipeline" yaml:"pipeline"`
 }
 
 type AppConfig struct {
@@ -196,6 +201,44 @@ type BehaviorConfig struct {
 	ReconnectTargetsWhileLive bool   `json:"reconnect_targets_while_live" yaml:"reconnect_targets_while_live"`
 	SourceLossPolicy          string `json:"source_loss_policy" yaml:"source_loss_policy"`
 	RestarterInterval         string `json:"restarter_interval" yaml:"restarter_interval"`
+}
+
+type PipelineConfig struct {
+	Nodes       []NodeConfig       `json:"nodes" yaml:"nodes"`
+	States      []StateConfig      `json:"states" yaml:"states"`
+	Transitions []TransitionConfig `json:"transitions" yaml:"transitions"`
+}
+
+type NodeConfig struct {
+	ID           string   `json:"id" yaml:"id"`
+	Label        string   `json:"label" yaml:"label"`
+	Kind         string   `json:"kind" yaml:"kind"` // service, source.slate, source.rtmp, stream.program, relay.rtmp, relay.rtmps
+	DependsOn    []string `json:"depends_on" yaml:"depends_on"`
+	Input        string   `json:"input" yaml:"input"`
+	Output       string   `json:"output" yaml:"output"`
+	OutputEnv    string   `json:"output_env" yaml:"output_env"`
+	OutputKeyEnv string   `json:"output_key_env" yaml:"output_key_env"`
+	ProfileID    string   `json:"profile_id" yaml:"profile_id"`
+	StableFor    string   `json:"stable_for" yaml:"stable_for"`
+	Timeout      string   `json:"timeout" yaml:"timeout"`
+}
+
+type StateConfig struct {
+	ID    string   `json:"id" yaml:"id"`
+	Nodes []string `json:"nodes" yaml:"nodes"`
+}
+
+type TransitionConfig struct {
+	ID   string `json:"id" yaml:"id"`
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
+}
+
+func (c *Config) GetEnv(key string) string {
+	if key == "" {
+		return ""
+	}
+	return os.Getenv(key)
 }
 
 var RelevantEnvVars = []EnvVarHelp{

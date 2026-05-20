@@ -64,6 +64,29 @@ func (c *Client) GetPath(ctx context.Context, path string) (*PathInfo, error) {
 	return nil, fmt.Errorf("path not found: %s", path)
 }
 
+func (c *Client) WaitUntilHealthy(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/v3/paths/list", nil)
+		if err == nil {
+			resp, err := c.HTTPClient.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return nil
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("mediamtx not healthy after %v", timeout)
+}
+
 func (c *Client) WaitForPathReady(ctx context.Context, path string, timeout time.Duration) (*PathInfo, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

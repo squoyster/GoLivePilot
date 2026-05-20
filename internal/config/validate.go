@@ -63,5 +63,51 @@ func ValidateConfig(cfg *Config) error {
 		}
 	}
 
+	if cfg.Pipeline.Nodes != nil {
+		if err := validatePipeline(cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validatePipeline(cfg *Config) error {
+	nodeIDs := make(map[string]bool)
+	for _, node := range cfg.Pipeline.Nodes {
+		if node.ID == "" {
+			return fmt.Errorf("pipeline node missing id")
+		}
+		if nodeIDs[node.ID] {
+			return fmt.Errorf("duplicate pipeline node id %q", node.ID)
+		}
+		nodeIDs[node.ID] = true
+	}
+
+	stateIDs := make(map[string]bool)
+	for _, state := range cfg.Pipeline.States {
+		if state.ID == "" {
+			return fmt.Errorf("pipeline state missing id")
+		}
+		if stateIDs[state.ID] {
+			return fmt.Errorf("duplicate pipeline state id %q", state.ID)
+		}
+		stateIDs[state.ID] = true
+		for _, nodeID := range state.Nodes {
+			if !nodeIDs[nodeID] {
+				return fmt.Errorf("state %q references missing node %q", state.ID, nodeID)
+			}
+		}
+	}
+
+	for _, transition := range cfg.Pipeline.Transitions {
+		if transition.From != "" && transition.From != "any" && !stateIDs[transition.From] {
+			return fmt.Errorf("transition %q references missing from state %q", transition.ID, transition.From)
+		}
+		if !stateIDs[transition.To] {
+			return fmt.Errorf("transition %q references missing to state %q", transition.ID, transition.To)
+		}
+	}
+
 	return nil
 }

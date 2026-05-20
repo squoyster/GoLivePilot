@@ -177,11 +177,11 @@ slate:
   # Static image or looped video shown before the camera goes live.
   # Mount this file into the container.
   type: "image" # image | video
-  path: "/assets/starting-soon.png"
+  path: "assets/starting-soon.png"
 
-  standby_image: "/assets/standing-by.png"
-  starting_image: "/assets/starting-soon.png"
-  ended_image: "/assets/stream-ended.png"
+  standby_image: "assets/standing-by.png"
+  starting_image: "assets/starting-soon.png"
+  ended_image: "assets/stream-ended.png"
 
   # Text may be used later to auto-generate the slate.
   text: "Stream is starting soon"
@@ -271,12 +271,14 @@ profiles:
       - "zerolatency"
       - "-pix_fmt"
       - "yuv420p"
+      - "-r"
+      - "30"
       - "-b:v"
-      - "3000k"
+      - "2500k"
       - "-maxrate"
-      - "3000k"
+      - "2500k"
       - "-bufsize"
-      - "6000k"
+      - "5000k"
       - "-g"
       - "60"
       - "-c:a"
@@ -285,10 +287,14 @@ profiles:
       - "128k"
       - "-ar"
       - "48000"
+      - "-ac"
+      - "2"
       - "-avoid_negative_ts"
       - "make_zero"
       - "-flvflags"
       - "no_duration_filesize"
+      - "-f"
+      - "flv"
 
 ###############################################
 # Targets
@@ -323,9 +329,9 @@ targets:
     # RTMPS destination URL.
     # Example value:
     #   rtmps://live-api-s.facebook.com:443/rtmp/<key>
-    rtmps_url_env: "FB_RTMPS_URL"
+    rtmps_url_env: "rtmps://live-api-s.facebook.com:443/rtmp/"
 
-    # Facebook Stream Key (optional if included in URL, but recommended to separate)
+    # Facebook Stream Key (required for RTMPS)
     rtmps_key_env: "FB_RTMPS_KEY"
 
     lifecycle:
@@ -361,7 +367,7 @@ targets:
   - id: "youtube-main"
     label: "YouTube"
     platform: "youtube"
-    enabled: true
+    enabled: false
 
     ingest_id: "camera"
     preview_source: "slate"
@@ -369,7 +375,8 @@ targets:
 
     profile_id: "x264-720p"
 
-    # RTMPS destination URL.
+    # Example value:
+    #   rtmps://a.rtmps.youtube.com:443/live2/<key>
     rtmps_url_env: "YT_RTMPS_URL"
 
     # YouTube Stream Key
@@ -426,6 +433,85 @@ targets:
 ###############################################
 # Runtime state
 ###############################################
+
+###############################################
+# Pipeline Orchestration
+###############################################
+
+pipeline:
+  nodes:
+    # 1. Services
+    - id: "mediamtx"
+      label: "MediaMTX"
+      kind: "service"
+
+    # 2. Source: Slate (Slate image -> internal-program)
+    - id: "__internal_source__"
+      label: "Slate Source"
+      kind: "source.slate"
+      depends_on: ["mediamtx"]
+      input: "assets/starting-soon.png"
+      output: "rtmp://127.0.0.1:1935/live/internal-program"
+      timeout: "15s"
+
+    # 3. Source: Camera (Camera feed -> internal-program)
+    - id: "camera_source"
+      label: "Camera Source"
+      kind: "source.rtmp"
+      depends_on: ["mediamtx"]
+      input: "rtmp://127.0.0.1:1935/live/camera"
+      output: "rtmp://127.0.0.1:1935/live/internal-program"
+      timeout: "15s"
+
+    # 4. Program Output (internal-program -> live/program)
+    - id: "__program_source__"
+      label: "Program Output"
+      kind: "stream.program"
+      depends_on: ["mediamtx"]
+      input: "rtmp://127.0.0.1:1935/live/internal-program"
+      output: "rtmp://127.0.0.1:1935/live/program"
+      timeout: "15s"
+
+    # 5. Local Preview Relay (live/program -> live/preview)
+    - id: "__preview__"
+      label: "Local Preview"
+      kind: "relay.rtmp"
+      depends_on: ["__program_source__"]
+      input: "rtmp://127.0.0.1:1935/live/program"
+      output: "rtmp://127.0.0.1:1935/live/preview"
+
+    # 6. Facebook Relay (live/program -> Facebook RTMPS)
+    - id: "facebook-main"
+      label: "Facebook"
+      kind: "relay.rtmps"
+      depends_on: ["__program_source__"]
+      input: "rtmp://127.0.0.1:1935/live/program"
+      output_env: "FACEBOOK_RTMPS_URL"
+      output_key_env: "FACEBOOK_RTMPS_KEY"
+
+  states:
+    - id: "standby"
+      nodes: ["mediamtx"]
+    - id: "preview"
+      nodes: ["mediamtx", "__internal_source__", "__program_source__", "__preview__", "facebook-main"]
+    - id: "live"
+      nodes: ["mediamtx", "camera_source", "__program_source__", "__preview__", "facebook-main"]
+    - id: "ended"
+      nodes: ["mediamtx", "__program_source__", "__preview__", "facebook-main"]
+
+  transitions:
+    - id: "standby_to_preview"
+      from: "standby"
+      to: "preview"
+    - id: "preview_to_live"
+      from: "preview"
+      to: "live"
+    - id: "live_to_ended"
+      from: "live"
+      to: "ended"
+    - id: "any_to_standby"
+      from: "any"
+      to: "standby"
 
 runtime:
   store:

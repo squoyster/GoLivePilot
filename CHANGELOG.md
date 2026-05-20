@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.59] - 2026-05-19
+
+### Added
+- Implemented an explicit **Component Graph** and **State Machine Orchestration** model for robust stream management.
+- Introduced `internal/app/pipeline.go` to manage node-based dependencies and formal state transitions (Standby, Preview, Live, Ended).
+- Added a `pipeline` configuration section in `golivepilot.yml` to define the broadcast pipeline, including nodes (service, source, stream, relay), states, and transitions.
+- Added explicit node-level readiness checks and dependency-ordered bootstrapping.
+
+### Changed
+- Refactored `Runtime` to use the new `Pipeline` orchestration model, ensuring core invariants like persistent platform relays and single-writer semantics for the program bus.
+- Optimized the Preview-to-Live transition to ensure the platform relay PID remains unchanged and the `live/program` bus stays continuously available.
+- Updated the Facebook relay to use stable re-encode parameters by default in the new node-driven model.
+- Enhanced configuration validation to ensure graph integrity and valid node/state references.
+
 ## [0.1.58] - 2026-05-19
 
 ### Added
